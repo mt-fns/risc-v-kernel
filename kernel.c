@@ -11,6 +11,12 @@ extern char __free_ram[], __free_ram_end[];
 // all processes
 struct process processes[PROCS_MAX];
 
+// used for yielding
+struct process *idle_process;
+struct process *running_process;
+
+struct process *proc_a;
+struct process *proc_b;
 
 paddr_t alloc_pages(uint32_t n) {
     static paddr_t next_paddr = (paddr_t) __free_ram;
@@ -204,21 +210,40 @@ void kernel_entry(void) {
     );
 }
 
+void yield(void) {
+    struct process *runnable_process = idle_process;
+    int i;
+
+    for (i = 0; i < PROCS_MAX; i++) {
+        // note: pid 0 is the idle process which is not runnable
+        if (processes[i].state == PROC_RUNNABLE && processes[i].pid > 0 && processes[i].pid != running_process->pid) {
+            runnable_process = &processes[i];
+            break;
+        }
+    }
+
+    // no other process ready to be run
+    if (runnable_process == running_process) {
+        return;
+    }
+
+    uint32_t *next_process_sp = &runnable_process->sp;
+    uint32_t *curr_process_sp = &running_process->sp;
+
+    running_process = runnable_process;
+    switch_context(curr_process_sp, next_process_sp);
+}
 
 void delay(void) {
     for (int i = 0; i < 30000000; i++)
         __asm__ __volatile__("nop"); 
 }
 
-struct process *proc_a;
-struct process *proc_b;
-
 void proc_a_entry(void) {
     printf("starting process A\n");
     while (1) {
         putchar('A');
-        switch_context(&proc_a->sp, &proc_b->sp);
-        delay();
+        yield();
     }
 }
 
@@ -226,25 +251,26 @@ void proc_b_entry(void) {
     printf("starting process B\n");
     while (1) {
         putchar('B');
-        switch_context(&proc_b->sp, &proc_a->sp);
-        delay();
+        yield();
     }
 }
 
 void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
-    printf("Hello, world!\n");
+
+    printf("\n\n");
 
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
 
+    idle_process = create_process((uint32_t) NULL);
+    idle_process->pid = 0;
+    running_process = idle_process;
+
     proc_a = create_process((uint32_t) proc_a_entry);
     proc_b = create_process((uint32_t) proc_b_entry);
-    proc_a_entry();
+    yield();
 
-
-    for (;;) {
-        __asm__ __volatile__("wfi");
-    }
+    PANIC("switched to idle process");
 }
 
 void handle_trap(struct trap_frame *f) {
