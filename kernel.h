@@ -1,4 +1,5 @@
 #pragma once
+#include "common.h"
 
 #define PANIC(fmt, ...)                                                        \
     do {                                                                       \
@@ -6,12 +7,22 @@
         while (1) {}                                                           \
     } while (0)
 
+#define PROCS_MAX 8
+
+#define PROC_UNUSED 0
+#define PROC_RUNNABLE 1
+
 struct sbiret {
     long error;
     long value;
 };
 
-#include "common.h"
+struct process {
+    int pid;
+    int state;           // PROC_UNUSED or PROC_RUNNABLE
+    vaddr_t sp;          
+    uint8_t stack[8192]; // kernel stack
+};
 
 struct trap_frame {
     uint32_t ra;
