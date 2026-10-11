@@ -72,11 +72,11 @@ __attribute__((naked)) void switch_context(uint32_t *prev_sp,
         "sw s10, 11 * 4(sp)\n"
         "sw s11, 12 * 4(sp)\n"
 
-        "sw sp, (a0)\n"         // save modified stack pointer to the previous process's stack pointer
+        "sw sp, (a0)\n"         // save modified stack pointer to the previous process's stack pointer (in the process struct)
         "lw sp, (a1)\n"         // switch actual stack pointer to next_sp here
 
-        "lw ra,  0  * 4(sp)\n"
-        "lw s0,  1  * 4(sp)\n"
+        "lw ra,  0  * 4(sp)\n"  // set ra to this process's entry function (the ret gets called later on)
+        "lw s0,  1  * 4(sp)\n"  
         "lw s1,  2  * 4(sp)\n"
         "lw s2,  3  * 4(sp)\n"
         "lw s3,  4  * 4(sp)\n"
@@ -136,8 +136,11 @@ __attribute__((naked))
 __attribute__((aligned(4)))
 void kernel_entry(void) {
     __asm__ __volatile__(
-        "csrw sscratch, sp\n"
-        "addi sp, sp, -4 * 31\n" // Allocate space for the trap_frame struct
+        // swap sp and sscratch
+        "csrrw sp, sscratch, sp\n"
+        
+        // store (user) interrupted code state before entering the kernel's trap handler
+        "addi sp, sp, -4 * 31\n"
         "sw ra,  4 * 0(sp)\n"
         "sw gp,  4 * 1(sp)\n"
         "sw tp,  4 * 2(sp)\n"
@@ -169,9 +172,17 @@ void kernel_entry(void) {
         "sw s10, 4 * 28(sp)\n"
         "sw s11, 4 * 29(sp)\n"
 
+        // store user sp to a0
         "csrr a0, sscratch\n"
+
+        // store user sp in trap frame
         "sw a0, 4 * 30(sp)\n"
 
+        // make sure sscratch still points to the top of the kernel's stack
+        "addi a0, sp, 4 * 31\n"
+        "csrw sscratch, a0\n"
+
+        // move current sp to a0 to pass in as a parameter (pointer to trap frame) in handle_trap
         "mv a0, sp\n"
         "call handle_trap\n"
 
@@ -227,6 +238,18 @@ void yield(void) {
         return;
     }
 
+    /*
+        we set the sscractch register to the top of the next running process's stack.
+        this is a convention shared by the switch context code and the trap handler code
+        such that when a kernel trap occurs, we know to set sp to the top of the 
+        current running process's kernel stack (the sp of the interrupted code is not to be trusted)
+    */ 
+    __asm__ __volatile__(
+        "csrw sscratch, %[sscratch]\n"
+        :
+        : [sscratch] "r" ((uint32_t) &runnable_process->stack[sizeof(runnable_process->stack)])
+    );
+
     uint32_t *next_process_sp = &runnable_process->sp;
     uint32_t *curr_process_sp = &running_process->sp;
 
@@ -260,6 +283,7 @@ void kernel_main(void) {
 
     printf("\n\n");
 
+    // point the kernel exception point to the kernel_entry function
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
 
     idle_process = create_process((uint32_t) NULL);
