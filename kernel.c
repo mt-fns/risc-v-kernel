@@ -7,6 +7,7 @@ typedef uint32_t size_t;
 
 extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
+extern char __kernel_base[];
 
 // all processes
 struct process processes[PROCS_MAX];
@@ -53,6 +54,39 @@ struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
 void putchar(char ch) {
     sbi_call(ch, 0, 0, 0, 0, 0, 0, 1);
 }
+
+/*
+    creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
+    note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
+    each page table layer contains the same PTE format (refer to guide for format)
+*/ 
+void map_page(uint32_t *table1, uint32_t vaddr, paddr_t paddr, uint32_t flags) {
+    if (!is_aligned(vaddr, PAGE_SIZE)) {
+        PANIC("unaligned vaddr %x", vaddr);
+    }
+
+    if (!is_aligned(paddr, PAGE_SIZE)) {
+        PANIC("unaligned paddr %x", paddr);
+    }
+
+
+    uint32_t vpn1 = vaddr >> 22; // get first 10 bits to index first layer of the page table
+
+    // table1[vpn1] here is a PTE, if it is invalid we need to create a second layer page table entry
+    if ((table1[vpn1] & PAGE_V) == 0) {
+        uint32_t pt_paddr = alloc_pages(1);
+
+        // the PPN in paddr is bits 31-12. the PPN in the PTE is bits 31-10 which is why we've shifted by 12 then 10
+        table1[vpn1] = ((pt_paddr >> 12) << 10) | PAGE_V;
+    }
+
+    uint32_t vpn0 = (vaddr << 10) >> 22;
+
+    // extract PTE containing PPN to actual paddr
+    uint32_t *table0 = (uint32_t *) ((table1[vpn1] >> 10) << 12);
+    table0[vpn0] = ((paddr >> 12) << 10) | flags | PAGE_V;
+}
+
 
 __attribute__((naked)) void switch_context(uint32_t *prev_sp,
                                            uint32_t *next_sp) {
@@ -124,10 +158,16 @@ struct process *create_process(uint32_t pc) {
     *--proc_sp = 0;                      // s0
     *--proc_sp = (uint32_t) pc;          // ra
 
+    // map out kernel memory in every process's page table
+    uint32_t *page_table = (uint32_t *) alloc_pages(1);
+    for (paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) {
+        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+    } 
 
     proc->pid = i + 1;
     proc->state = PROC_RUNNABLE;
     proc->sp = (uint32_t) proc_sp;
+    proc->page_table = page_table;
     return proc;
 }
 
@@ -245,9 +285,13 @@ void yield(void) {
         current running process's kernel stack (the sp of the interrupted code is not to be trusted)
     */ 
     __asm__ __volatile__(
+        "sfence.vma\n"
+        "csrw satp, %[satp]\n"
+        "sfence.vma\n"
         "csrw sscratch, %[sscratch]\n"
         :
-        : [sscratch] "r" ((uint32_t) &runnable_process->stack[sizeof(runnable_process->stack)])
+        : [satp] "r" (SATP_SV32 | ((uint32_t) runnable_process->page_table / PAGE_SIZE)),
+          [sscratch] "r" ((uint32_t) &runnable_process->stack[sizeof(runnable_process->stack)])
     );
 
     uint32_t *next_process_sp = &runnable_process->sp;

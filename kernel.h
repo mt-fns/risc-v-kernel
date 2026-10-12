@@ -8,9 +8,30 @@
     } while (0)
 
 #define PROCS_MAX 8
-
 #define PROC_UNUSED 0
 #define PROC_RUNNABLE 1
+
+
+#define SATP_SV32 (1u << 31)
+#define PAGE_V    (1 << 0)   // valid bit
+#define PAGE_R    (1 << 1)   // readable
+#define PAGE_W    (1 << 2)   // writable
+#define PAGE_X    (1 << 3)   // executable
+#define PAGE_U    (1 << 4)   // user (accessible in user mode)
+
+#define READ_CSR(reg)                                                          \
+    ({                                                                         \
+        unsigned long __tmp;                                                   \
+        __asm__ __volatile__("csrr %0, " #reg : "=r"(__tmp));                  \
+        __tmp;                                                                 \
+    })
+
+#define WRITE_CSR(reg, value)                                                  \
+    do {                                                                       \
+        uint32_t __tmp = (value);                                              \
+        __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                \
+    } while (0)
+
 
 struct sbiret {
     long error;
@@ -21,6 +42,7 @@ struct process {
     int pid;
     int state;           // PROC_UNUSED or PROC_RUNNABLE
     vaddr_t sp;          
+    uint32_t *page_table;
     uint8_t stack[8192]; // kernel stack
 };
 
@@ -57,16 +79,3 @@ struct trap_frame {
     uint32_t s11;
     uint32_t sp;
 } __attribute__((packed));
-
-#define READ_CSR(reg)                                                          \
-    ({                                                                         \
-        unsigned long __tmp;                                                   \
-        __asm__ __volatile__("csrr %0, " #reg : "=r"(__tmp));                  \
-        __tmp;                                                                 \
-    })
-
-#define WRITE_CSR(reg, value)                                                  \
-    do {                                                                       \
-        uint32_t __tmp = (value);                                              \
-        __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                \
-    } while (0)
