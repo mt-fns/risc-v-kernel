@@ -32,6 +32,14 @@
         __asm__ __volatile__("csrw " #reg ", %0" ::"r"(__tmp));                \
     } while (0)
 
+// this is the start address of our user application
+#define USER_BASE 0x1000000
+
+#define SSTATUS_SPIE (1 << 5)
+
+// System call numbers
+#define SYS_PUTCHAR 1
+
 
 struct sbiret {
     long error;
