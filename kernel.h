@@ -37,9 +37,6 @@
 
 #define SSTATUS_SPIE (1 << 5)
 
-// System call numbers
-#define SYS_PUTCHAR 1
-
 
 struct sbiret {
     long error;

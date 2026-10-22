@@ -186,7 +186,7 @@ struct process *create_process(const void *image, size_t image_size) {
         paddr_t page = alloc_pages(1);
 
         // remaining image size is less than page size
-        size_t remaining = image_sfize - off;
+        size_t remaining = image_size - off;
         size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
 
         memcpy((void *) page, image + off, copy_size);
@@ -392,9 +392,10 @@ void handle_trap(struct trap_frame *f) {
 
         // go to the nex instruction when we return from trap
         user_pc += 4;
+        WRITE_CSR(sepc, user_pc);
+    } else {
+        PANIC("unexpected trap scause=%x, stval=%x, sepc=%x\n", scause, stval, user_pc);
     }
-
-    PANIC("unexpected trap scause=%x, stval=%x, sepc=%x\n", scause, stval, user_pc);
 }
 
 __attribute__((section(".text.boot")))
