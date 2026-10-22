@@ -10,6 +10,7 @@
 #define PROCS_MAX 8
 #define PROC_UNUSED 0
 #define PROC_RUNNABLE 1
+#define PROC_EXITED   2
 
 
 #define SATP_SV32 (1u << 31)

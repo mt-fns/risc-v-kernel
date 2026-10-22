@@ -58,6 +58,11 @@ void putchar(char ch) {
     sbi_call(ch, 0, 0, 0, 0, 0, 0, 1);
 }
 
+long getchar(void) {
+    struct sbiret ret = sbi_call(0, 0, 0, 0, 0, 0, 0, 2);
+    return ret.error;
+}
+
 /*
     creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
     note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
@@ -375,6 +380,22 @@ void handle_syscall(struct trap_frame *f) {
     case SYS_PUTCHAR:
         putchar(f->a0);
         break;
+    case SYS_GETCHAR:
+        while (1) {
+            long ch = getchar();
+            if (ch >= 0) {
+                f->a0 = ch;
+                break;
+            }
+
+            // yield to another ready process while waiting for user input
+            yield();    
+        }
+    case SYS_EXIT:
+        printf("process %d exited\n", running_process->pid);
+        running_process->state = PROC_EXITED;
+        yield();
+        PANIC("unreachable");
     default:
         PANIC("unexpected syscall number %x\n", f->a3);
         break;

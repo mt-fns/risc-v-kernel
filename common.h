@@ -22,6 +22,9 @@ typedef uint32_t vaddr_t;
 
 // syscall numbers
 #define SYS_PUTCHAR 1
+#define SYS_GETCHAR 2
+#define SYS_EXIT 3
+
 
 void *memset(void *buf, char c, size_t n);
 void *memcpy(void *dst, const void *src, size_t n);
