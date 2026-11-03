@@ -506,6 +506,13 @@ void kernel_main(void) {
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
     virtio_blk_init();
 
+    char buf[SECTOR_SIZE];
+    read_write_disk(buf, 0, false);
+    printf("first sector: %s\n", buf);
+
+    strcpy(buf, "hello from kernel!!!\n");
+    read_write_disk(buf, 0, true);
+
     idle_process = create_process(NULL, 0);
     idle_process->pid = 0;
     running_process = idle_process;

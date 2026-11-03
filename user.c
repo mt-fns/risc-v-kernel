@@ -2,10 +2,6 @@
 
 extern char __stack_top[];
 
-__attribute__((noreturn)) void exit(void) {
-    for (;;);
-}
-
 int syscall(int sysno, int arg0, int arg1, int arg2) {
     register int a0 __asm__("a0") = arg0;
     register int a1 __asm__("a1") = arg1;
