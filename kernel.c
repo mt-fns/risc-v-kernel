@@ -28,6 +28,9 @@ struct virtio_blk_req *blk_req;
 paddr_t blk_req_paddr;
 uint64_t blk_capacity;
 
+struct file files[FILES_MAX];
+uint8_t disk[DISK_MAX_SIZE];
+
 paddr_t alloc_pages(uint32_t n) {
     static paddr_t next_paddr = (paddr_t) __free_ram;
     paddr_t paddr = next_paddr;
@@ -497,6 +500,50 @@ void proc_b_entry(void) {
     }
 }
 
+
+int oct2int(char *oct, int len) {
+    int dec = 0;
+    for (int i = 0; i < len; i++) {
+        if (oct[i] < '0' || oct[i] > '7')
+            break;
+
+        dec = dec * 8 + (oct[i] - '0');
+    }
+    return dec;
+}
+
+
+void fs_init(void) {
+    for (unsigned sector = 0; sector < sizeof(disk) / SECTOR_SIZE; sector++) {
+        read_write_disk(&disk[sector * SECTOR_SIZE], sector, false);
+    }
+
+    unsigned off = 0;
+
+    for (int i = 0; i < FILES_MAX; i++) {
+        struct tar_header *header = (struct tar_header *) &disk[off];
+
+        if (header->name[0] == '\0') {
+            break;
+        }
+
+        if (strcmp(header->magic, "ustar") != 0) {
+            PANIC("invalid tar header magic");
+        }
+
+        int filesz = oct2int(header->size, sizeof(header->size));
+        struct file *file = &files[i];
+
+        file->in_use = true;
+        strcpy(file->name, header->name);
+        memcpy(file->data, header->data, filesz);
+        file->size = filesz;
+        printf("file: %s, size=%d\n", file->name, file->size);
+
+        off += align_up(sizeof(struct tar_header) + filesz, SECTOR_SIZE);
+    }
+}
+
 void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
 
@@ -505,6 +552,9 @@ void kernel_main(void) {
     // point the kernel exception point to the kernel_entry function
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
     virtio_blk_init();
+
+    // read all sectors from disk to struct files
+    fs_init();
 
     char buf[SECTOR_SIZE];
     read_write_disk(buf, 0, false);
