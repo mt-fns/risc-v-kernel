@@ -20,14 +20,34 @@ kernel.elf: kernel.c common.c shell.bin.o
 	$(CC) $(CFLAGS) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o kernel.elf kernel.c common.c shell.bin.o
 
 # Run QEMU
-qemu: kernel.elf fs
+qemu: shell.elf kernel.elf fs
 	$(QEMU) -machine virt -bios default -nographic -serial mon:stdio --no-reboot \
 		-d unimp,guest_errors,int,cpu_reset -D qemu.log \
 		-drive id=drive0,file=disk.tar,format=raw,if=none \
 		-device virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0 \
 		-kernel kernel.elf
 
-# Clean
+# try to generate a unique GDB port
+GDBPORT = $(shell expr `id -u` % 5000 + 25000)
+# QEMU's gdb stub command line changed in 0.11
+QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
+	then echo "-gdb tcp::$(GDBPORT)"; \
+	else echo "-s -p $(GDBPORT)"; fi)
+
+.gdbinit: .gdbinit.tmpl-riscv
+	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
+
+qemu-gdb: shell.elf kernel.elf fs .gdbinit
+	$(QEMU) -machine virt -bios default -nographic -serial mon:stdio --no-reboot \
+		-d unimp,guest_errors,int,cpu_reset -D qemu.log \
+		-drive id=drive0,file=disk.tar,format=raw,if=none \
+		-device virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0 \
+		-kernel kernel.elf \
+		-S $(QEMUGDB)
+
+print-gdbport:
+	@echo $(GDBPORT)
+
 clean:
 	rm -f *.elf *.map shell.bin shell.bin.o disk.tar qemu.log
 
