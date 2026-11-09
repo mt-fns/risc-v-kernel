@@ -1,5 +1,8 @@
 #include "kernel.h"
 #include "common.h"
+#ifdef SELFTEST
+#include "selftest.h"
+#endif
 
 typedef unsigned char uint8_t;
 typedef unsigned int uint32_t;
@@ -213,6 +216,19 @@ struct sbiret shutdown(uint32_t reset_type, uint32_t reset_reason) {
     return sbi_call(reset_type, reset_reason, 0, 0, 0, 0, 0, 0x53525354);
 }
 
+void qemu_exit_pass(void) {
+    *(volatile uint32_t *) QEMU_TEST_ADDR = QEMU_TEST_PASS;
+    shutdown(SYS_REST_TYPE_SHUTDOWN, SYS_RESET_REASON_NA);
+    while (1) {}
+}
+
+// code must be non-zero: QEMU exits with it.
+void qemu_exit_fail(uint32_t code) {
+    *(volatile uint32_t *) QEMU_TEST_ADDR = (code << 16) | QEMU_TEST_FAIL;
+    shutdown(SYS_REST_TYPE_SHUTDOWN, SYS_RESET_REASON_FAILURE);
+    while (1) {}
+}
+
 /*
     creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
     note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
@@ -335,6 +351,7 @@ struct process *create_process(const void *image, size_t image_size) {
         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
     }
     map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W); // new
+    map_page(page_table, QEMU_TEST_ADDR, QEMU_TEST_ADDR, PAGE_R | PAGE_W); // so PANIC can exit QEMU with paging on
 
     // map out user pages
     for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
@@ -554,6 +571,11 @@ void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
 
     printf("\n\n");
+
+#ifdef SELFTEST
+    WRITE_CSR(stvec, (uint32_t) kernel_entry);
+    run_selftests();
+#endif
 
     shutdown(SYS_REST_TYPE_SHUTDOWN, SYS_RESET_REASON_FAILURE);
 
