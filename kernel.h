@@ -1,11 +1,32 @@
 #pragma once
 #include "common.h"
 
+// Power off QEMU through the virt machine's sifive_test "finisher" device.
+// Unlike the SBI shutdown call (OpenSBI ignores the reset reason, so QEMU
+// always exits 0), this sets QEMU's exit status. QEMU-virt only.
+#define QEMU_TEST_ADDR 0x100000
+#define QEMU_TEST_PASS 0x5555
+#define QEMU_TEST_FAIL 0x3333
+__attribute__((noreturn)) void qemu_exit_pass(void);
+__attribute__((noreturn)) void qemu_exit_fail(uint32_t code);
+
+// The test kernel can't sit in a loop after a panic: fail the run right away.
+#ifdef SELFTEST
+#define PANIC_HALT() qemu_exit_fail(2)
+#else
+#define PANIC_HALT() while (1) {}
+#endif
+
 #define PANIC(fmt, ...)                                                        \
     do {                                                                       \
         printf("PANIC: %s:%d: " fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);  \
-        while (1) {}                                                           \
+        PANIC_HALT();                                                          \
     } while (0)
+
+// system shutdown args
+#define SYS_REST_TYPE_SHUTDOWN 0
+#define SYS_RESET_REASON_NA 0
+#define SYS_RESET_REASON_FAILURE 1
 
 #define PROCS_MAX 8
 #define PROC_UNUSED 0
