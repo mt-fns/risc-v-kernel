@@ -7,6 +7,11 @@
         while (1) {}                                                           \
     } while (0)
 
+// system shutdown args
+#define SYS_REST_TYPE_SHUTDOWN 0
+#define SYS_RESET_REASON_NA 0
+#define SYS_RESET_REASON_FAILURE 1
+
 #define PROCS_MAX 8
 #define PROC_UNUSED 0
 #define PROC_RUNNABLE 1

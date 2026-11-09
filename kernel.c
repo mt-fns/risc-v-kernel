@@ -207,6 +207,12 @@ long getchar(void) {
     return ret.error;
 }
 
+
+// System-level reboot/shutdown. Refer to System Reset Extension (RISC-V Supervisor Binary Interface Specification) 
+struct sbiret shutdown(uint32_t reset_type, uint32_t reset_reason) {
+    return sbi_call(reset_type, reset_reason, 0, 0, 0, 0, 0, 0x53525354);
+}
+
 /*
     creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
     note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
@@ -548,6 +554,8 @@ void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
 
     printf("\n\n");
+
+    shutdown(SYS_REST_TYPE_SHUTDOWN, SYS_RESET_REASON_FAILURE);
 
     // point the kernel exception point to the kernel_entry function
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
