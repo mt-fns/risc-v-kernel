@@ -1,4 +1,4 @@
-QEMU = qemu-system-riscv32
+QEMU = qemu-system-riscv64
 
 # bash so recipes can use `set -o pipefail` (dash's /bin/sh can't)
 SHELL := /bin/bash
@@ -6,7 +6,7 @@ SHELL := /bin/bash
 # Path to clang and compiler flags
 CC = clang
 OBJCOPY = /usr/bin/llvm-objcopy
-CFLAGS = -std=c11 -O2 -g3 -Wall -Wextra --target=riscv32-unknown-elf -fuse-ld=lld -fno-stack-protector -ffreestanding -nostdlib
+CFLAGS = -std=c11 -O2 -g3 -Wall -Wextra -Werror --target=riscv32-unknown-elf -march=rv64gc -fuse-ld=lld -fno-stack-protector -mcmodel=medany -ffreestanding -nostdlib
 
 KERNEL_SRCS = kernel.c common.c
 KERNEL_HDRS = kernel.h common.h
@@ -38,8 +38,12 @@ shell.elf: shell.c user.c common.c
 shell.bin.o: shell.elf ;
 
 # Build the kernel
-kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) shell.bin.o
-	$(CC) $(CFLAGS) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o $@ $(KERNEL_SRCS) shell.bin.o
+# kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) shell.bin.o
+# 	$(CC) $(CFLAGS) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o $@ $(KERNEL_SRCS) shell.bin.o
+
+# Build just the kernel (64 bit port for now)
+kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS)
+	$(CC) $(CFLAGS) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o $@ $(KERNEL_SRCS)
 
 # Build the test kernel: same sources plus selftest.c, with SELFTEST defined.
 kernel-test.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) selftest.c selftest.h shell.bin.o
