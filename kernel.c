@@ -570,7 +570,7 @@ int oct2int(char *oct, int len) {
 void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
 
-    printf("\n\n");
+    printf("Hello World!");
 
 #ifdef SELFTEST
     WRITE_CSR(stvec, (uint32_t) kernel_entry);
@@ -591,14 +591,14 @@ void kernel_main(void) {
     // strcpy(buf, "hello from kernel!!!\n");
     // read_write_disk(buf, 0, true);
 
-    idle_process = create_process(NULL, 0);
-    idle_process->pid = 0;
-    running_process = idle_process;
+    // idle_process = create_process(NULL, 0);
+    // idle_process->pid = 0;
+    // running_process = idle_process;
 
-    // create_process(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
-    yield();
+    // // create_process(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
+    // yield();
 
-    PANIC("switched to idle process");
+    // PANIC("switched to idle process");
 }
 
 void handle_syscall(struct trap_frame *f) {
