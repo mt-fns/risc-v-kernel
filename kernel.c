@@ -265,38 +265,38 @@ void map_page(uint32_t *table1, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
 __attribute__((naked)) void switch_context(uint64_t *prev_sp,
                                            uint64_t *next_sp) {
     __asm__ __volatile__(
-        "addi sp, sp, -13 * 4\n"    // reserve space for 13 4-byte registers on the stack
-        "sw ra,  0  * 4(sp)\n"
-        "sw s0,  1  * 4(sp)\n"
-        "sw s1,  2  * 4(sp)\n"
-        "sw s2,  3  * 4(sp)\n"
-        "sw s3,  4  * 4(sp)\n"
-        "sw s4,  5  * 4(sp)\n"
-        "sw s5,  6  * 4(sp)\n"
-        "sw s6,  7  * 4(sp)\n"
-        "sw s7,  8  * 4(sp)\n"
-        "sw s8,  9  * 4(sp)\n"
-        "sw s9,  10 * 4(sp)\n"
-        "sw s10, 11 * 4(sp)\n"
-        "sw s11, 12 * 4(sp)\n"
+        "addi sp, sp, -13 * 8\n"    // reserve space for 13 4-byte registers on the stack
+        "sd ra,  0  * 8(sp)\n"
+        "sd s0,  1  * 8(sp)\n"
+        "sd s1,  2  * 8(sp)\n"
+        "sd s2,  3  * 8(sp)\n"
+        "sd s3,  4  * 8(sp)\n"
+        "sd s4,  5  * 8(sp)\n"
+        "sd s5,  6  * 8(sp)\n"
+        "sd s6,  7  * 8(sp)\n"
+        "sd s7,  8  * 8(sp)\n"
+        "sd s8,  9  * 8(sp)\n"
+        "sd s9,  10 * 8(sp)\n"
+        "sd s10, 11 * 8(sp)\n"
+        "sd s11, 12 * 8(sp)\n"
 
-        "sw sp, (a0)\n"         // save modified stack pointer to the previous process's stack pointer (in the process struct)
-        "lw sp, (a1)\n"         // switch actual stack pointer to next_sp here
+        "sd sp, (a0)\n"         // save modified stack pointer to the previous process's stack pointer (in the process struct)
+        "ld sp, (a1)\n"         // switch actual stack pointer to next_sp here
 
-        "lw ra,  0  * 4(sp)\n"  // set ra to this process's entry function (the ret gets called later on)
-        "lw s0,  1  * 4(sp)\n"  
-        "lw s1,  2  * 4(sp)\n"
-        "lw s2,  3  * 4(sp)\n"
-        "lw s3,  4  * 4(sp)\n"
-        "lw s4,  5  * 4(sp)\n"
-        "lw s5,  6  * 4(sp)\n"
-        "lw s6,  7  * 4(sp)\n"
-        "lw s7,  8  * 4(sp)\n"
-        "lw s8,  9  * 4(sp)\n"
-        "lw s9,  10 * 4(sp)\n"
-        "lw s10, 11 * 4(sp)\n"
-        "lw s11, 12 * 4(sp)\n"
-        "addi sp, sp, 13 * 4\n"  // we've popped 13 4-byte registers from the stack
+        "ld ra,  0  * 8(sp)\n"  // set ra to this process's entry function (the ret gets called later on)
+        "ld s0,  1  * 8(sp)\n"  
+        "ld s1,  2  * 8(sp)\n"
+        "ld s2,  3  * 8(sp)\n"
+        "ld s3,  4  * 8(sp)\n"
+        "ld s4,  5  * 8(sp)\n"
+        "ld s5,  6  * 8(sp)\n"
+        "ld s6,  7  * 8(sp)\n"
+        "ld s7,  8  * 8(sp)\n"
+        "ld s8,  9  * 8(sp)\n"
+        "ld s9,  10 * 8(sp)\n"
+        "ld s10, 11 * 8(sp)\n"
+        "ld s11, 12 * 8(sp)\n"
+        "addi sp, sp, 13 * 8\n"  // we've popped 13 4-byte registers from the stack
         "ret\n"
     );
 }
@@ -315,10 +315,10 @@ __attribute__((naked)) void user_entry(void) {
 
 
 // pc here points to the entry point of the process
-struct process *create_process(const void *image, size_t image_size) {
+struct process *create_process(uint64_t pc) {
+    // Find an unused process control structure.
     struct process *proc = NULL;
-    int i = 0;
-
+    int i;
     for (i = 0; i < PROCS_MAX; i++) {
         if (processes[i].state == PROC_UNUSED) {
             proc = &processes[i];
@@ -326,51 +326,90 @@ struct process *create_process(const void *image, size_t image_size) {
         }
     }
 
-    if (i >= PROCS_MAX) {
-        PANIC("Ran out of processs slots");
-    }
+    if (!proc)
+        PANIC("no free process slots");
 
-    uint64_t *proc_sp = (uint64_t *) &proc->stack[sizeof(proc->stack)];
-    *--proc_sp = 0;                      // s11
-    *--proc_sp = 0;                      // s10
-    *--proc_sp = 0;                      // s9
-    *--proc_sp = 0;                      // s8
-    *--proc_sp = 0;                      // s7
-    *--proc_sp = 0;                      // s6
-    *--proc_sp = 0;                      // s5
-    *--proc_sp = 0;                      // s4
-    *--proc_sp = 0;                      // s3
-    *--proc_sp = 0;                      // s2
-    *--proc_sp = 0;                      // s1
-    *--proc_sp = 0;                      // s0
-    *--proc_sp = (uint64_t) user_entry;          // ra
+    // Stack callee-saved registers. These register values will be restored in
+    // the first context switch in switch_context.
+    uint64_t *sp = (uint64_t *) &proc->stack[sizeof(proc->stack)];
+    *--sp = 0;                      // s11
+    *--sp = 0;                      // s10
+    *--sp = 0;                      // s9
+    *--sp = 0;                      // s8
+    *--sp = 0;                      // s7
+    *--sp = 0;                      // s6
+    *--sp = 0;                      // s5
+    *--sp = 0;                      // s4
+    *--sp = 0;                      // s3
+    *--sp = 0;                      // s2
+    *--sp = 0;                      // s1
+    *--sp = 0;                      // s0
+    *--sp = (uint64_t) pc;          // ra
 
-    // map out kernel memory in every process's page table
-    uint32_t *page_table = (uint32_t *) alloc_pages(1);
-    for (paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) {
-        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
-    }
-    map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W); // new
-    map_page(page_table, QEMU_TEST_ADDR, QEMU_TEST_ADDR, PAGE_R | PAGE_W); // so PANIC can exit QEMU with paging on
-
-    // map out user pages
-    for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
-        paddr_t page = alloc_pages(1);
-
-        // remaining image size is less than page size
-        size_t remaining = image_size - off;
-        size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
-
-        memcpy((void *) page, image + off, copy_size);
-        map_page(page_table, USER_BASE + off, page, PAGE_U | PAGE_R | PAGE_W | PAGE_X);
-    }
-
+    // Initialize fields.
     proc->pid = i + 1;
     proc->state = PROC_RUNNABLE;
-    proc->sp = (uint64_t) proc_sp;
-    proc->page_table = page_table;
+    proc->sp = (uint64_t) sp;
     return proc;
 }
+
+
+// struct process *create_process(const void *image, size_t image_size) {
+//     struct process *proc = NULL;
+//     int i = 0;
+
+//     for (i = 0; i < PROCS_MAX; i++) {
+//         if (processes[i].state == PROC_UNUSED) {
+//             proc = &processes[i];
+//             break;
+//         }
+//     }
+
+//     if (i >= PROCS_MAX) {
+//         PANIC("Ran out of processs slots");
+//     }
+
+//     uint64_t *proc_sp = (uint64_t *) &proc->stack[sizeof(proc->stack)];
+//     *--proc_sp = 0;                      // s11
+//     *--proc_sp = 0;                      // s10
+//     *--proc_sp = 0;                      // s9
+//     *--proc_sp = 0;                      // s8
+//     *--proc_sp = 0;                      // s7
+//     *--proc_sp = 0;                      // s6
+//     *--proc_sp = 0;                      // s5
+//     *--proc_sp = 0;                      // s4
+//     *--proc_sp = 0;                      // s3
+//     *--proc_sp = 0;                      // s2
+//     *--proc_sp = 0;                      // s1
+//     *--proc_sp = 0;                      // s0
+//     *--proc_sp = (uint64_t) user_entry;          // ra
+
+//     // map out kernel memory in every process's page table
+//     uint32_t *page_table = (uint32_t *) alloc_pages(1);
+//     for (paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) {
+//         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+//     }
+//     map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W); // new
+//     map_page(page_table, QEMU_TEST_ADDR, QEMU_TEST_ADDR, PAGE_R | PAGE_W); // so PANIC can exit QEMU with paging on
+
+//     // map out user pages
+//     for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
+//         paddr_t page = alloc_pages(1);
+
+//         // remaining image size is less than page size
+//         size_t remaining = image_size - off;
+//         size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
+
+//         memcpy((void *) page, image + off, copy_size);
+//         map_page(page_table, USER_BASE + off, page, PAGE_U | PAGE_R | PAGE_W | PAGE_X);
+//     }
+
+//     proc->pid = i + 1;
+//     proc->state = PROC_RUNNABLE;
+//     proc->sp = (uint64_t) proc_sp;
+//     proc->page_table = page_table;
+//     return proc;
+// }
 
 
 // __attribute__((naked))
@@ -657,6 +696,18 @@ void kernel_main(void) {
 
     // point the kernel exception point to the kernel_entry function
     WRITE_CSR(stvec, (uint64_t) kernel_entry);
+
+
+    idle_process = create_process((uint64_t) NULL);
+    idle_process->pid = 0;
+    running_process = idle_process;
+
+    create_process((uint64_t) proc_a_entry);
+    create_process((uint64_t) proc_b_entry);
+
+    // create_process(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
+    yield();
+
     for (;;);
     // virtio_blk_init();
 
