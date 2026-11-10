@@ -6,7 +6,7 @@ SHELL := /bin/bash
 # Path to clang and compiler flags
 CC = clang
 OBJCOPY = /usr/bin/llvm-objcopy
-CFLAGS = -std=c11 -O2 -g3 -Wall -Wextra -Werror --target=riscv32-unknown-elf -march=rv64gc -fuse-ld=lld -fno-stack-protector -mcmodel=medany -ffreestanding -nostdlib
+CFLAGS = -std=c11 -O2 -g3 -Wall -Wextra -Werror --target=riscv64-unknown-elf -march=rv64gc -fuse-ld=lld -fno-stack-protector -mcmodel=medany -ffreestanding -nostdlib
 
 KERNEL_SRCS = kernel.c common.c
 KERNEL_HDRS = kernel.h common.h
