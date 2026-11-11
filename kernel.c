@@ -34,7 +34,7 @@ uint64_t blk_capacity;
 struct file files[FILES_MAX];
 uint8_t disk[DISK_MAX_SIZE];
 
-paddr_t alloc_pages(uint32_t n) {
+paddr_t alloc_pages(uint64_t n) {
     static paddr_t next_paddr = (paddr_t) __free_ram;
     paddr_t paddr = next_paddr;
     next_paddr += n * PAGE_SIZE;
@@ -45,141 +45,6 @@ paddr_t alloc_pages(uint32_t n) {
     memset((void *) paddr, 0, n * PAGE_SIZE);
     return paddr;
 }
-
-// virtio helpers
-// uint32_t virtio_reg_read32(unsigned offset) {
-//     return *((volatile uint32_t *) (VIRTIO_BLK_PADDR + offset));
-// }
-
-// uint64_t virtio_reg_read64(unsigned offset) {
-//     return *((volatile uint64_t *) (VIRTIO_BLK_PADDR + offset));
-// }
-
-// void virtio_reg_write32(unsigned offset, uint32_t value) {
-//     *((volatile uint32_t *) (VIRTIO_BLK_PADDR + offset)) = value;
-// }
-
-// void virtio_reg_fetch_and_or32(unsigned offset, uint32_t value) {
-//     virtio_reg_write32(offset, virtio_reg_read32(offset) | value);
-// }
-
-// struct virtio_virtq *virtq_init(unsigned index) {
-//     // Allocate a region for the virtqueue.
-//     paddr_t virtq_paddr = alloc_pages(align_up(sizeof(struct virtio_virtq), PAGE_SIZE) / PAGE_SIZE);
-//     struct virtio_virtq *vq = (struct virtio_virtq *) virtq_paddr;
-//     vq->queue_index = index;
-//     vq->used_index = (volatile uint16_t *) &vq->used.index;
-//     // Select the queue: Write the virtqueue index (first queue is 0).
-//     virtio_reg_write32(VIRTIO_REG_QUEUE_SEL, index);
-//     // Specify the queue size: Write the # of descriptors we'll use.
-//     virtio_reg_write32(VIRTIO_REG_QUEUE_NUM, VIRTQ_ENTRY_NUM);
-//     // Write the physical page frame number (not physical address!) of the queue.
-//     virtio_reg_write32(VIRTIO_REG_QUEUE_PFN, virtq_paddr / PAGE_SIZE);
-//     return vq;
-// }
-
-// void virtio_blk_init(void) {
-//     if (virtio_reg_read32(VIRTIO_REG_MAGIC) != 0x74726976) {
-//         PANIC("virtio: invalid magic");
-//     } 
-//     if (virtio_reg_read32(VIRTIO_REG_VERSION) != 1) {
-//         PANIC("virtio: invalid version");
-//     }
-//     if (virtio_reg_read32(VIRTIO_REG_DEVICE_ID) != VIRTIO_DEVICE_BLK) {
-//         PANIC("virtio: invalid device id");
-//     }
-
-//     // reset device
-//     virtio_reg_write32(VIRTIO_REG_DEVICE_STATUS, 0);
-
-//     // set ACK status bit
-//     virtio_reg_fetch_and_or32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_ACK);
-
-//     // set DRIVER status bit
-//     virtio_reg_fetch_and_or32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER);
-
-//     // set page size (4kb)
-//     virtio_reg_write32(VIRTIO_REG_PAGE_SIZE, PAGE_SIZE);
-
-//     // initialise queue for disk read/write requests
-//     blk_request_vq = virtq_init(0);
-
-//     // set DRIVER_OK status bit
-//     virtio_reg_write32(VIRTIO_REG_DEVICE_STATUS, VIRTIO_STATUS_DRIVER_OK);
-
-//     // get disk capacity
-//     blk_capacity = virtio_reg_read64(VIRTIO_REG_DEVICE_CONFIG + 0) * SECTOR_SIZE;
-//     printf("virtio-blk: capacity is %d bytes\n", (int)blk_capacity);
-
-//      // allocate a region to store requests to the device
-//     blk_req_paddr = alloc_pages(align_up(sizeof(*blk_req), PAGE_SIZE) / PAGE_SIZE);
-//     blk_req = (struct virtio_blk_req *) blk_req_paddr;
-// }
-
-// // Notifies the device that there is a new request. `desc_index` is the index
-// // of the head descriptor of the new request.
-// void virtq_kick(struct virtio_virtq *vq, int desc_index) {
-//     vq->avail.ring[vq->avail.index % VIRTQ_ENTRY_NUM] = desc_index;
-//     vq->avail.index++;
-//     __sync_synchronize();
-//     virtio_reg_write32(VIRTIO_REG_QUEUE_NOTIFY, vq->queue_index);
-//     vq->last_used_index++;
-// }
-
-// // Returns whether there are requests being processed by the device.
-// bool virtq_is_busy(struct virtio_virtq *vq) {
-//     return vq->last_used_index != *vq->used_index;
-// }
-
-// // Reads/writes from/to virtio-blk device.
-// void read_write_disk(void *buf, unsigned sector, int is_write) {
-//     if (sector >= blk_capacity / SECTOR_SIZE) {
-//         printf("virtio: tried to read/write sector=%d, but capacity is %d\n",
-//               sector, blk_capacity / SECTOR_SIZE);
-//         return;
-//     }
-
-//     // Construct the request according to the virtio-blk specification.
-//     blk_req->sector = sector;
-//     blk_req->type = is_write ? VIRTIO_BLK_T_OUT : VIRTIO_BLK_T_IN;
-//     if (is_write)
-//         memcpy(blk_req->data, buf, SECTOR_SIZE);
-
-//     // Construct the virtqueue descriptors (using 3 descriptors).
-//     struct virtio_virtq *vq = blk_request_vq;
-//     vq->descs[0].addr = blk_req_paddr;
-//     vq->descs[0].len = sizeof(uint32_t) * 2 + sizeof(uint64_t);
-//     vq->descs[0].flags = VIRTQ_DESC_F_NEXT;
-//     vq->descs[0].next = 1;
-
-//     vq->descs[1].addr = blk_req_paddr + offsetof(struct virtio_blk_req, data);
-//     vq->descs[1].len = SECTOR_SIZE;
-//     vq->descs[1].flags = VIRTQ_DESC_F_NEXT | (is_write ? 0 : VIRTQ_DESC_F_WRITE);
-//     vq->descs[1].next = 2;
-
-//     vq->descs[2].addr = blk_req_paddr + offsetof(struct virtio_blk_req, status);
-//     vq->descs[2].len = sizeof(uint8_t);
-//     vq->descs[2].flags = VIRTQ_DESC_F_WRITE;
-
-//     // Notify the device that there is a new request.
-//     virtq_kick(vq, 0);
-
-//     // Wait until the device finishes processing.
-//     while (virtq_is_busy(vq))
-//         ;
-
-//     // virtio-blk: If a non-zero value is returned, it's an error.
-//     if (blk_req->status != 0) {
-//         printf("virtio: warn: failed to read/write sector=%d status=%d\n",
-//                sector, blk_req->status);
-//         return;
-//     }
-
-//     // For read operations, copy the data into the buffer.
-//     if (!is_write)
-//         memcpy(buf, blk_req->data, SECTOR_SIZE);
-// }
-
 
 struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
                        long arg5, long fid, long eid) {
@@ -249,21 +114,21 @@ void map_page(uint64_t *table2, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
     if ((table2[vpn2] & PAGE_V) == 0) {
         uint64_t pt_paddr = alloc_pages(1);
 
-        // allocate pte for second layer page table (TODO: check this calculation)
+        // allocate pte for second layer page table
         table2[vpn2] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
     }
 
-    uint64_t vpn1 = vaddr >> 21;
+    uint64_t vpn1 = ((vaddr << 34) >> 34) >> 21;
     uint64_t *table1 = (uint64_t *) ((table2[vpn2] >> 10) * PAGE_SIZE);
 
     if ((table1[vpn1] & PAGE_V) == 0) {
         uint64_t pt_paddr = alloc_pages(1);
-        // allocate pte for second layer page table (TODO: check this calculation)
-        table1[vpn2] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
+        // allocate pte for second layer page table
+        table1[vpn1] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
     }
 
-    // extract PTE containing PPN to actual paddr
-    uint64_t vpn0 = vaddr >> 12;
+    // add leaf PTE containing PPN to actual paddr into the page table
+    uint64_t vpn0 = ((vaddr << 43) >> 43) >> 12;
     uint64_t *table0 = (uint64_t *) (uint64_t) ((table1[vpn1] >> 10) << 12);
     table0[vpn0] = ((paddr >> 12) << 10) | flags | PAGE_V;
 }
@@ -353,160 +218,19 @@ struct process *create_process(uint64_t pc) {
     *--sp = 0;                      // s0
     *--sp = (uint64_t) pc;          // ra
 
-    // Initialize fields.
+    // Map kernel pages
+    uint64_t *page_table = (uint64_t *) alloc_pages(1);
+    for (paddr_t paddr = (paddr_t) __kernel_base;
+         paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
+        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+
     proc->pid = i + 1;
     proc->state = PROC_RUNNABLE;
     proc->sp = (uint64_t) sp;
+    proc->page_table = page_table;
     return proc;
 }
 
-
-// struct process *create_process(const void *image, size_t image_size) {
-//     struct process *proc = NULL;
-//     int i = 0;
-
-//     for (i = 0; i < PROCS_MAX; i++) {
-//         if (processes[i].state == PROC_UNUSED) {
-//             proc = &processes[i];
-//             break;
-//         }
-//     }
-
-//     if (i >= PROCS_MAX) {
-//         PANIC("Ran out of processs slots");
-//     }
-
-//     uint64_t *proc_sp = (uint64_t *) &proc->stack[sizeof(proc->stack)];
-//     *--proc_sp = 0;                      // s11
-//     *--proc_sp = 0;                      // s10
-//     *--proc_sp = 0;                      // s9
-//     *--proc_sp = 0;                      // s8
-//     *--proc_sp = 0;                      // s7
-//     *--proc_sp = 0;                      // s6
-//     *--proc_sp = 0;                      // s5
-//     *--proc_sp = 0;                      // s4
-//     *--proc_sp = 0;                      // s3
-//     *--proc_sp = 0;                      // s2
-//     *--proc_sp = 0;                      // s1
-//     *--proc_sp = 0;                      // s0
-//     *--proc_sp = (uint64_t) user_entry;          // ra
-
-//     // map out kernel memory in every process's page table
-//     uint32_t *page_table = (uint32_t *) alloc_pages(1);
-//     for (paddr_t paddr = (paddr_t) __kernel_base; paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE) {
-//         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
-//     }
-//     map_page(page_table, VIRTIO_BLK_PADDR, VIRTIO_BLK_PADDR, PAGE_R | PAGE_W); // new
-//     map_page(page_table, QEMU_TEST_ADDR, QEMU_TEST_ADDR, PAGE_R | PAGE_W); // so PANIC can exit QEMU with paging on
-
-//     // map out user pages
-//     for (uint32_t off = 0; off < image_size; off += PAGE_SIZE) {
-//         paddr_t page = alloc_pages(1);
-
-//         // remaining image size is less than page size
-//         size_t remaining = image_size - off;
-//         size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
-
-//         memcpy((void *) page, image + off, copy_size);
-//         map_page(page_table, USER_BASE + off, page, PAGE_U | PAGE_R | PAGE_W | PAGE_X);
-//     }
-
-//     proc->pid = i + 1;
-//     proc->state = PROC_RUNNABLE;
-//     proc->sp = (uint64_t) proc_sp;
-//     proc->page_table = page_table;
-//     return proc;
-// }
-
-
-// __attribute__((naked))
-// __attribute__((aligned(4)))
-// void kernel_entry(void) {
-//     __asm__ __volatile__(
-//         // swap sp and sscratch
-//         "csrrw sp, sscratch, sp\n"
-        
-//         // store (user) interrupted code state before entering the kernel's trap handler
-//         "addi sp, sp, -4 * 31\n"
-//         "sw ra,  4 * 0(sp)\n"
-//         "sw gp,  4 * 1(sp)\n"
-//         "sw tp,  4 * 2(sp)\n"
-//         "sw t0,  4 * 3(sp)\n"
-//         "sw t1,  4 * 4(sp)\n"
-//         "sw t2,  4 * 5(sp)\n"
-//         "sw t3,  4 * 6(sp)\n"
-//         "sw t4,  4 * 7(sp)\n"
-//         "sw t5,  4 * 8(sp)\n"
-//         "sw t6,  4 * 9(sp)\n"
-//         "sw a0,  4 * 10(sp)\n"
-//         "sw a1,  4 * 11(sp)\n"
-//         "sw a2,  4 * 12(sp)\n"
-//         "sw a3,  4 * 13(sp)\n"
-//         "sw a4,  4 * 14(sp)\n"
-//         "sw a5,  4 * 15(sp)\n"
-//         "sw a6,  4 * 16(sp)\n"
-//         "sw a7,  4 * 17(sp)\n"
-//         "sw s0,  4 * 18(sp)\n"
-//         "sw s1,  4 * 19(sp)\n"
-//         "sw s2,  4 * 20(sp)\n"
-//         "sw s3,  4 * 21(sp)\n"
-//         "sw s4,  4 * 22(sp)\n"
-//         "sw s5,  4 * 23(sp)\n"
-//         "sw s6,  4 * 24(sp)\n"
-//         "sw s7,  4 * 25(sp)\n"
-//         "sw s8,  4 * 26(sp)\n"
-//         "sw s9,  4 * 27(sp)\n"
-//         "sw s10, 4 * 28(sp)\n"
-//         "sw s11, 4 * 29(sp)\n"
-
-//         // store user sp to a0
-//         "csrr a0, sscratch\n"
-
-//         // store user sp in trap frame
-//         "sw a0, 4 * 30(sp)\n"
-
-//         // make sure sscratch still points to the top of the kernel's stack
-//         "addi a0, sp, 4 * 31\n"
-//         "csrw sscratch, a0\n"
-
-//         // move current sp to a0 to pass in as a parameter (pointer to trap frame) in handle_trap
-//         "mv a0, sp\n"
-//         "call handle_trap\n"
-
-//         "lw ra,  4 * 0(sp)\n"
-//         "lw gp,  4 * 1(sp)\n"
-//         "lw tp,  4 * 2(sp)\n"
-//         "lw t0,  4 * 3(sp)\n"
-//         "lw t1,  4 * 4(sp)\n"
-//         "lw t2,  4 * 5(sp)\n"
-//         "lw t3,  4 * 6(sp)\n"
-//         "lw t4,  4 * 7(sp)\n"
-//         "lw t5,  4 * 8(sp)\n"
-//         "lw t6,  4 * 9(sp)\n"
-//         "lw a0,  4 * 10(sp)\n"
-//         "lw a1,  4 * 11(sp)\n"
-//         "lw a2,  4 * 12(sp)\n"
-//         "lw a3,  4 * 13(sp)\n"
-//         "lw a4,  4 * 14(sp)\n"
-//         "lw a5,  4 * 15(sp)\n"
-//         "lw a6,  4 * 16(sp)\n"
-//         "lw a7,  4 * 17(sp)\n"
-//         "lw s0,  4 * 18(sp)\n"
-//         "lw s1,  4 * 19(sp)\n"
-//         "lw s2,  4 * 20(sp)\n"
-//         "lw s3,  4 * 21(sp)\n"
-//         "lw s4,  4 * 22(sp)\n"
-//         "lw s5,  4 * 23(sp)\n"
-//         "lw s6,  4 * 24(sp)\n"
-//         "lw s7,  4 * 25(sp)\n"
-//         "lw s8,  4 * 26(sp)\n"
-//         "lw s9,  4 * 27(sp)\n"
-//         "lw s10, 4 * 28(sp)\n"
-//         "lw s11, 4 * 29(sp)\n"
-//         "lw sp,  4 * 30(sp)\n"
-//         "sret\n"
-//     );
-// }
 
 __attribute__((naked))
 __attribute__((aligned(4)))
@@ -615,9 +339,10 @@ void yield(void) {
         "sfence.vma\n"
         "csrw sscratch, %[sscratch]\n"
         :
-        : [satp] "r" (SATP_SV32 | ((uint64_t) runnable_process->page_table / PAGE_SIZE)),
+        : [satp] "r" (SATP_SV39 | ((uint64_t)runnable_process->page_table / PAGE_SIZE)),
           [sscratch] "r" ((uint64_t) &runnable_process->stack[sizeof(runnable_process->stack)])
     );
+
 
     uint64_t *next_process_sp = &runnable_process->sp;
     uint64_t *curr_process_sp = &running_process->sp;
@@ -658,38 +383,6 @@ int oct2int(char *oct, int len) {
     }
     return dec;
 }
-
-
-// void fs_init(void) {
-//     for (unsigned sector = 0; sector < sizeof(disk) / SECTOR_SIZE; sector++) {
-//         read_write_disk(&disk[sector * SECTOR_SIZE], sector, false);
-//     }
-
-//     unsigned off = 0;
-
-//     for (int i = 0; i < FILES_MAX; i++) {
-//         struct tar_header *header = (struct tar_header *) &disk[off];
-
-//         if (header->name[0] == '\0') {
-//             break;
-//         }
-
-//         if (strcmp(header->magic, "ustar") != 0) {
-//             PANIC("invalid tar header magic");
-//         }
-
-//         int filesz = oct2int(header->size, sizeof(header->size));
-//         struct file *file = &files[i];
-
-//         file->in_use = true;
-//         strcpy(file->name, header->name);
-//         memcpy(file->data, header->data, filesz);
-//         file->size = filesz;
-//         printf("file: %s, size=%d\n", file->name, file->size);
-
-//         off += align_up(sizeof(struct tar_header) + filesz, SECTOR_SIZE);
-//     }
-// }
 
 void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
