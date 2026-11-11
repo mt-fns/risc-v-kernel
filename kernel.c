@@ -234,7 +234,7 @@ void qemu_exit_fail(uint32_t code) {
     note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
     each page table layer contains the same PTE format (refer to guide for format)
 */ 
-void map_page(uint32_t *table1, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
+void map_page(uint64_t *table2, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
     if (!is_aligned(vaddr, PAGE_SIZE)) {
         PANIC("unaligned vaddr %x", vaddr);
     }
@@ -243,21 +243,28 @@ void map_page(uint32_t *table1, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
         PANIC("unaligned paddr %x", paddr);
     }
 
+    uint64_t vpn2 = vaddr >> 30; 
 
-    uint32_t vpn1 = vaddr >> 22; // get first 10 bits to index first layer of the page table
+    // make first layer if it doesnt exit
+    if ((table2[vpn2] & PAGE_V) == 0) {
+        uint64_t pt_paddr = alloc_pages(1);
 
-    // table1[vpn1] here is a PTE, if it is invalid we need to create a second layer page table entry
-    if ((table1[vpn1] & PAGE_V) == 0) {
-        uint32_t pt_paddr = alloc_pages(1);
-
-        // the PPN in paddr is bits 31-12. the PPN in the PTE is bits 31-10 which is why we've shifted by 12 then 10
-        table1[vpn1] = ((pt_paddr >> 12) << 10) | PAGE_V;
+        // allocate pte for second layer page table (TODO: check this calculation)
+        table2[vpn2] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
     }
 
-    uint32_t vpn0 = (vaddr << 10) >> 22;
+    uint64_t vpn1 = vaddr >> 21;
+    uint64_t *table1 = (uint64_t *) ((table2[vpn2] >> 10) * PAGE_SIZE);
+
+    if ((table1[vpn1] & PAGE_V) == 0) {
+        uint64_t pt_paddr = alloc_pages(1);
+        // allocate pte for second layer page table (TODO: check this calculation)
+        table1[vpn2] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
+    }
 
     // extract PTE containing PPN to actual paddr
-    uint32_t *table0 = (uint32_t *) (uint64_t) ((table1[vpn1] >> 10) << 12);
+    uint64_t vpn0 = vaddr >> 12;
+    uint64_t *table0 = (uint64_t *) (uint64_t) ((table1[vpn1] >> 10) << 12);
     table0[vpn0] = ((paddr >> 12) << 10) | flags | PAGE_V;
 }
 
