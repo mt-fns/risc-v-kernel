@@ -34,7 +34,8 @@ __attribute__((noreturn)) void qemu_exit_fail(uint32_t code);
 #define PROC_EXITED   2
 
 
-#define SATP_SV32 (1u << 31)
+#define SATP_SV39 (8ULL << 60)
+
 #define PAGE_V    (1 << 0)   // valid bit
 #define PAGE_R    (1 << 1)   // readable
 #define PAGE_W    (1 << 2)   // writable
@@ -95,7 +96,7 @@ struct process {
     int pid;
     int state;           // PROC_UNUSED or PROC_RUNNABLE
     vaddr_t sp;          
-    uint32_t *page_table;
+    uint64_t *page_table;
     uint8_t stack[8192]; // kernel stack
 };
 
