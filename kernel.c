@@ -236,7 +236,12 @@ __attribute__((naked))
 __attribute__((aligned(4)))
 void kernel_entry(void) {
     __asm__ __volatile__(
-        "csrw sscratch, sp\n"
+        /*
+            sscratch will contain the top of the currently running process's kernel stack.
+            when a trap happens, we swap sp (from the user) & sscratch (top of process's kernel stack)
+        */ 
+        "csrrw sp, sscratch, sp\n"
+
         "addi sp, sp, -4 * 64\n" // Allocate space for the trap_frame struct
         "sd ra,  8 * 0(sp)\n"
         "sd gp,  8 * 1(sp)\n"
@@ -271,6 +276,10 @@ void kernel_entry(void) {
 
         "csrr a0, sscratch\n"
         "sd a0, 8 * 30(sp)\n"
+
+        // store the top of the kernel process stack to top after we push everything
+        "addi a0, sp, 8 * 31\n"
+        "csrw sscratch, a0\n"
 
         "mv a0, sp\n"
         "call handle_trap\n"
