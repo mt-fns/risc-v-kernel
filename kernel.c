@@ -396,7 +396,7 @@ int oct2int(char *oct, int len) {
 void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
 
-    printf("Hello World!");
+    // printf("Hello World!");
 
 #ifdef SELFTEST
     WRITE_CSR(stvec, (uint64_t) kernel_entry);
@@ -411,11 +411,11 @@ void kernel_main(void) {
     idle_process->pid = 0;
     running_process = idle_process;
 
-    create_process((uint64_t) proc_a_entry);
-    create_process((uint64_t) proc_b_entry);
+    // create_process((uint64_t) proc_a_entry);
+    // create_process((uint64_t) proc_b_entry);
 
     // create_process(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
-    yield();
+    // yield();
 
     for (;;);
     // virtio_blk_init();

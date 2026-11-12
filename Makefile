@@ -10,6 +10,7 @@ CFLAGS = -std=c11 -O2 -g3 -Wall -Wextra -Werror --target=riscv64-unknown-elf -ma
 
 KERNEL_SRCS = kernel.c common.c
 KERNEL_HDRS = kernel.h common.h
+KERNEL_ARCH = -march=rv64imac -mabi=lp64
 
 # Kernel image to boot with `make qemu` / `make qemu-gdb`.
 # `make qemu KERNEL=kernel-test.elf` runs the test kernel with no timeout.
@@ -33,21 +34,23 @@ all: shell.elf kernel.elf
 shell.elf: shell.c user.c common.c
 	$(CC) $(CFLAGS) -Wl,-Tuser.ld -Wl,-Map=shell.map -o shell.elf shell.c user.c common.c
 	$(OBJCOPY) --set-section-flags .bss=alloc,contents -O binary shell.elf shell.bin
-	$(OBJCOPY) -I binary -O elf32-littleriscv shell.bin shell.bin.o
+	$(OBJCOPY) -I binary -O elf64-littleriscv shell.bin shell.bin.o
 
 # shell.bin.o is produced by the shell.elf recipe
 shell.bin.o: shell.elf ;
 
 # Build the kernel
-# kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) shell.bin.o
-# 	$(CC) $(CFLAGS) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o $@ $(KERNEL_SRCS) shell.bin.o
+kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) shell.bin.o
+	$(CC) $(CFLAGS) $(KERNEL_ARCH) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o $@ $(KERNEL_SRCS) shell.bin.o
+
+# debug: kernel.elf shell.elf
 
 # Build just the kernel (64 bit port for now)
-kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS)
-	$(CC) $(CFLAGS) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o $@ $(KERNEL_SRCS)
+# kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS)
+# 	$(CC) $(CFLAGS) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o $@ $(KERNEL_SRCS)
 
 # Build the test kernel: same sources plus selftest.c, with SELFTEST defined.
-kernel-test.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) selftest.c selftest.h shell.bin.o
+kernel-test.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) $(KERNEL_ARCH) selftest.c selftest.h shell.bin.o
 	$(CC) $(CFLAGS) -DSELFTEST -DSELFTEST_PASS_MSG='"$(SELFTEST_PASS)"' \
 		-Wl,-Tkernel.ld -Wl,-Map=kernel-test.map -o $@ $(KERNEL_SRCS) selftest.c shell.bin.o
 
