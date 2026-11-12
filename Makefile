@@ -1,9 +1,7 @@
 QEMU = qemu-system-riscv64
 
-# bash so recipes can use `set -o pipefail` (dash's /bin/sh can't)
 SHELL := /bin/bash
 
-# Path to clang and compiler flags
 CC = clang
 OBJCOPY = /usr/bin/llvm-objcopy
 CFLAGS = -std=c11 -O2 -g3 -Wall -Wextra -Werror --target=riscv64-unknown-elf -march=rv64gc -fuse-ld=lld -fno-stack-protector -mcmodel=medany -ffreestanding -nostdlib
@@ -12,8 +10,7 @@ KERNEL_SRCS = kernel.c common.c
 KERNEL_HDRS = kernel.h common.h
 KERNEL_ARCH = -march=rv64imac -mabi=lp64
 
-# Kernel image to boot with `make qemu` / `make qemu-gdb`.
-# `make qemu KERNEL=kernel-test.elf` runs the test kernel with no timeout.
+
 KERNEL ?= kernel.elf
 
 # QEMUOPTS = -machine virt -bios default -nographic -serial mon:stdio --no-reboot \
@@ -21,8 +18,7 @@ KERNEL ?= kernel.elf
 # 	-device virtio-blk-device,drive=drive0,bus=virtio-mmio-bus.0
 QEMUOPTS = -machine virt -bios default -nographic -serial mon:stdio --no-reboot \
 
-# Selftest settings. The pass line is passed into the C build too, so the
-# kernel and the check below can't spell it differently.
+# Selftest settings
 TEST_TIMEOUT ?= 10
 SELFTEST_PASS = SELFTEST: ALL PASSED
 
@@ -43,11 +39,6 @@ shell.bin.o: shell.elf ;
 kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) shell.bin.o
 	$(CC) $(CFLAGS) $(KERNEL_ARCH) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o $@ $(KERNEL_SRCS) shell.bin.o
 
-# debug: kernel.elf shell.elf
-
-# Build just the kernel (64 bit port for now)
-# kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS)
-# 	$(CC) $(CFLAGS) -Wl,-Tkernel.ld -Wl,-Map=kernel.map -o $@ $(KERNEL_SRCS)
 
 # Build the test kernel: same sources plus selftest.c, with SELFTEST defined.
 kernel-test.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) $(KERNEL_ARCH) selftest.c selftest.h shell.bin.o
@@ -86,7 +77,6 @@ QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
 	then echo "-gdb tcp::$(GDBPORT)"; \
 	else echo "-s -p $(GDBPORT)"; fi)
 
-# Regenerated every run so symbols follow KERNEL= (phony on purpose).
 .PHONY: .gdbinit
 .gdbinit: .gdbinit.tmpl-riscv
 	sed -e "s/:1234/:$(GDBPORT)/" -e "s/^symbol-file kernel\.elf$$/symbol-file $(KERNEL)/" < $< > $@
