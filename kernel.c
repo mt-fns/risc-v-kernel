@@ -459,7 +459,7 @@ void kernel_main(void) {
 }
 
 void handle_syscall(struct trap_frame *f) {
-    switch (f->a3)
+    switch (f->a7)
     {
     case SYS_PUTCHAR:
         putchar(f->a0);
