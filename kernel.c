@@ -87,11 +87,55 @@ void qemu_exit_pass(void) {
     while (1) {}
 }
 
-// code must be non-zero: QEMU exits with it.
 void qemu_exit_fail(uint32_t code) {
     *(volatile uint32_t *) QEMU_TEST_ADDR = (code << 16) | QEMU_TEST_FAIL;
     shutdown(SYS_REST_TYPE_SHUTDOWN, SYS_RESET_REASON_FAILURE);
     while (1) {}
+}
+
+
+void kfree(void *pa) {
+    struct node *freenode;
+
+    // TODO: check if __free_ram_end here is the correct metric (check also if data type to compare is correct)
+    if (!is_aligned(pa, PAGE_SIZE) || (char *)pa < __free_ram || (char *)pa >= __free_ram_end) {
+        PANIC("kfree");
+    }
+
+    // junk fill for catching dangling references
+    memset(pa, 1, PAGE_SIZE);
+
+    freenode = (struct node *)pa;
+    freenode->next = freelist;
+    freelist = freenode;
+}
+
+void freerange(void *pa_start, void *pa_end) {
+    char *p;
+    p = (char *)align_up(pa_start, PAGE_SIZE);
+
+    for (; p + PAGE_SIZE <= (char *)pa_end; p += PAGE_SIZE) {
+        kfree(p);
+    }
+}
+
+void kinit() {
+    freerange(__free_ram, (void *)__free_ram_end);
+}
+
+void *kalloc() {
+    struct node *freenode;
+    freenode = freelist;
+
+    if (freenode) {
+        freelist = freelist->next;
+    }
+
+    if (freenode) {
+        // junk filled
+        memset((char *)freenode, 5, PAGE_SIZE);
+    }
+    return (void *)freenode;
 }
 
 /*
@@ -429,33 +473,6 @@ void kernel_main(void) {
     
     yield();
     PANIC("switched to idle process");
-    // create_process((uint64_t) proc_a_entry);
-    // create_process((uint64_t) proc_b_entry);
-
-    // create_process(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
-    // yield();
-
-    // for (;;);
-    // virtio_blk_init();
-
-    // read all sectors from disk to struct files
-    // fs_init();
-
-    // char buf[SECTOR_SIZE];
-    // read_write_disk(buf, 0, false);
-    // printf("first sector: %s\n", buf);
-
-    // strcpy(buf, "hello from kernel!!!\n");
-    // read_write_disk(buf, 0, true);
-
-    // idle_process = create_process(NULL, 0);
-    // idle_process->pid = 0;
-    // running_process = idle_process;
-
-    // // create_process(_binary_shell_bin_start, (size_t) _binary_shell_bin_size);
-    // yield();
-
-    // PANIC("switched to idle process");
 }
 
 void handle_syscall(struct trap_frame *f) {
