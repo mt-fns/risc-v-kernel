@@ -135,6 +135,12 @@ struct trap_frame {
 } __attribute__((packed));
 
 
+// Freelist structure
+struct node {
+    struct node *next;
+};
+
+struct node *freelist;
 
 // Virtqueue Descriptor Table entry.
 struct virtq_desc {
