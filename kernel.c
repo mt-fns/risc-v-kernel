@@ -34,17 +34,17 @@ uint64_t blk_capacity;
 struct file files[FILES_MAX];
 uint8_t disk[DISK_MAX_SIZE];
 
-paddr_t alloc_pages(uint64_t n) {
-    static paddr_t next_paddr = (paddr_t) __free_ram;
-    paddr_t paddr = next_paddr;
-    next_paddr += n * PAGE_SIZE;
+// paddr_t alloc_pages(uint64_t n) {
+//     static paddr_t next_paddr = (paddr_t) __free_ram;
+//     paddr_t paddr = next_paddr;
+//     next_paddr += n * PAGE_SIZE;
 
-    if (next_paddr > (paddr_t) __free_ram_end)
-        PANIC("out of memory");
+//     if (next_paddr > (paddr_t) __free_ram_end)
+//         PANIC("out of memory");
 
-    memset((void *) paddr, 0, n * PAGE_SIZE);
-    return paddr;
-}
+//     memset((void *) paddr, 0, n * PAGE_SIZE);
+//     return paddr;
+// }
 
 struct sbiret sbi_call(long arg0, long arg1, long arg2, long arg3, long arg4,
                        long arg5, long fid, long eid) {
@@ -133,7 +133,7 @@ void *kalloc() {
 
     if (freenode) {
         // junk filled
-        memset((char *)freenode, 5, PAGE_SIZE);
+        memset((char *)freenode, 0, PAGE_SIZE);
     }
     return (void *)freenode;
 }
@@ -156,7 +156,7 @@ void map_page(uint64_t *table2, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
 
     // make first layer if it doesnt exit
     if ((table2[vpn2] & PAGE_V) == 0) {
-        uint64_t pt_paddr = alloc_pages(1);
+        uint64_t pt_paddr = (uint64_t) kalloc();
 
         // allocate pte for second layer page table
         table2[vpn2] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
@@ -166,7 +166,7 @@ void map_page(uint64_t *table2, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
     uint64_t *table1 = (uint64_t *) ((table2[vpn2] >> 10) * PAGE_SIZE);
 
     if ((table1[vpn1] & PAGE_V) == 0) {
-        uint64_t pt_paddr = alloc_pages(1);
+        uint64_t pt_paddr = (uint64_t) kalloc();
         // allocate pte for second layer page table
         table1[vpn1] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
     }
@@ -263,14 +263,14 @@ struct process *create_process(const void *image, size_t image_size) {
     *--sp = (uint64_t) user_entry;          // ra
 
     // Map kernel pages
-    uint64_t *page_table = (uint64_t *) alloc_pages(1);
+    uint64_t *page_table = (uint64_t *) kalloc();
     for (paddr_t paddr = (paddr_t) __kernel_base;
          paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
         map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
 
     // Map user pages
     for (uint64_t off = 0; off < image_size; off += PAGE_SIZE) {
-        paddr_t page = alloc_pages(1);
+        paddr_t page = (paddr_t) kalloc();
 
         // Handle the case where the data to be copied is smaller than the
         // page size.
@@ -454,9 +454,8 @@ int oct2int(char *oct, int len) {
 
 void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
-
-    // printf("Hello World!");
-
+    kinit();
+    
 #ifdef SELFTEST
     WRITE_CSR(stvec, (uint64_t) kernel_entry);
     run_selftests();
