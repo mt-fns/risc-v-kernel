@@ -3,6 +3,8 @@
 
 paddr_t alloc_pages(uint32_t n);
 
+extern char __free_ram[], __free_ram_end[];
+
 const char *selftest_current = "(none)";
 
 static void test_trivial(void) {
@@ -34,11 +36,20 @@ static void test_alloc_pages(void) {
     TEST_ASSERT(is_aligned(b, PAGE_SIZE));
     TEST_ASSERT(is_aligned(c, PAGE_SIZE));
 
+
     uint8_t *p = (uint8_t *) b;
 
     for (size_t i = 0; i < PAGE_SIZE; i++) {
         TEST_ASSERT(p[i] == 0);
     }
+
+    kfree((void *)a);
+    kfree((void *)b);
+    kfree((void *)c);
+
+    uint64_t num_pages_on_boot = (((uint64_t) __free_ram_end) - ((uint64_t)__free_ram)) / PAGE_SIZE;
+
+    TEST_ASSERT(knumfree() == num_pages_on_boot);
 }
 
 

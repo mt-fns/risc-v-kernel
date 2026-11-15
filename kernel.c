@@ -34,8 +34,7 @@ uint64_t blk_capacity;
 struct file files[FILES_MAX];
 uint8_t disk[DISK_MAX_SIZE];
 
-struct node *freelist;
-
+struct freelist kmem = {0, NULL};
 
 // paddr_t alloc_pages(uint64_t n) {
 //     static paddr_t next_paddr = (paddr_t) __free_ram;
@@ -100,7 +99,6 @@ void qemu_exit_fail(uint32_t code) {
 void kfree(void *pa) {
     struct node *freenode;
 
-    // TODO: check if __free_ram_end here is the correct metric (check also if data type to compare is correct)
     if (!is_aligned(pa, PAGE_SIZE) || (char *)pa < __free_ram || (char *)pa >= __free_ram_end) {
         PANIC("kfree");
     }
@@ -109,8 +107,9 @@ void kfree(void *pa) {
     memset(pa, 1, PAGE_SIZE);
 
     freenode = (struct node *)pa;
-    freenode->next = freelist;
-    freelist = freenode;
+    freenode->next = kmem.head;
+    kmem.head = freenode;
+    kmem.nfree++;
 }
 
 void freerange(void *pa_start, void *pa_end) {
@@ -126,19 +125,25 @@ void kinit() {
     freerange(__free_ram, (void *)__free_ram_end);
 }
 
+
+// Allocates a page of memory or return 0 if no pages left in the free list
 void *kalloc() {
     struct node *freenode;
-    freenode = freelist;
+    freenode = kmem.head;
 
     if (freenode) {
-        freelist = freelist->next;
-    }
-
-    if (freenode) {
+        kmem.head = freenode->next;
         // junk filled
         memset((char *)freenode, 0, PAGE_SIZE);
+        kmem.nfree--;
+        return (void *)freenode;
     }
-    return (void *)freenode;
+
+    return 0;
+}
+
+uint64_t knumfree() {
+    return kmem.nfree;
 }
 
 /*
