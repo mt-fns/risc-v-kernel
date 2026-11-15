@@ -7,6 +7,7 @@
 typedef unsigned char uint8_t;
 typedef unsigned int uint32_t;
 typedef uint64_t size_t;
+typedef uint64_t * pagetable_t;
 
 extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
@@ -146,24 +147,17 @@ uint64_t knumfree() {
     return kmem.nfree;
 }
 
-/*
-    creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
-    note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
-    each page table layer contains the same PTE format (refer to guide for format)
-*/ 
-void map_page(uint64_t *table2, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
-    if (!is_aligned(vaddr, PAGE_SIZE)) {
-        PANIC("unaligned vaddr %x", vaddr);
-    }
 
-    if (!is_aligned(paddr, PAGE_SIZE)) {
-        PANIC("unaligned paddr %x", paddr);
-    }
-
+// Returns the address of the PTE that corresponds to vaddr
+// if this PTE has not yet been allocated & should_alloc is set, allocates a PTE for the vaddr
+// if should_alloc is not set and PTE has not been allocated, return 0
+uint64_t walk(pagetable_t pagetable, vaddr_t vaddr, int should_alloc) {
     uint64_t vpn2 = vaddr >> 30; 
+    uint64_t *table2 = (uint64_t *) pagetable; 
 
     // make first layer if it doesnt exit
     if ((table2[vpn2] & PAGE_V) == 0) {
+        if (!should_alloc) return 0;
         uint64_t pt_paddr = (uint64_t) kalloc();
 
         // allocate pte for second layer page table
@@ -174,17 +168,65 @@ void map_page(uint64_t *table2, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
     uint64_t *table1 = (uint64_t *) ((table2[vpn2] >> 10) * PAGE_SIZE);
 
     if ((table1[vpn1] & PAGE_V) == 0) {
+        if (!should_alloc) return 0;
         uint64_t pt_paddr = (uint64_t) kalloc();
-        // allocate pte for second layer page table
+        // allocate pte for third layer page table
         table1[vpn1] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
     }
 
-    // add leaf PTE containing PPN to actual paddr into the page table
     uint64_t vpn0 = ((vaddr << 43) >> 43) >> 12;
     uint64_t *table0 = (uint64_t *) (uint64_t) ((table1[vpn1] >> 10) << 12);
-    table0[vpn0] = ((paddr >> 12) << 10) | flags | PAGE_V;
+
+    return (uint64_t) &table0[vpn0];
 }
 
+// Creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
+// note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
+// each page table layer contains the same PTE format (refer to guide for format)
+// Returns 0 on failure
+int map_page(pagetable_t pagetable, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
+    if (!is_aligned(vaddr, PAGE_SIZE)) {
+        PANIC("unaligned vaddr %x", vaddr);
+    }
+
+    if (!is_aligned(paddr, PAGE_SIZE)) {
+        PANIC("unaligned paddr %x", paddr);
+    }
+    
+    // allocate 3 layer page table
+    uint64_t *pte_addr = (uint64_t *) walk(pagetable, vaddr, 1);
+
+    // walk has failed allocating a PTE
+    if (pte_addr == 0) {
+        return 0;
+    }
+
+    *pte_addr = ((paddr >> 12) << 10) | flags | PAGE_V;
+}
+
+// Allocates PTEs for a range of virtual addresses to a range of physical addresses
+// Returns 0 on success, -1 if a PTE could not be allocated
+int map_pages(pagetable_t pagetable, vaddr_t vaddr, uint64_t size, paddr_t paddr, int perm) {
+    if (!is_aligned(vaddr, PAGE_SIZE)) {
+        PANIC("unaligned vaddr %x", vaddr);
+    }
+
+    if (!is_aligned(paddr, PAGE_SIZE)) {
+        PANIC("unaligned paddr %x", paddr);
+    }
+
+    vaddr_t curr_vaddr = vaddr;
+    paddr_t curr_paddr = paddr;
+    while (curr_vaddr < (curr_vaddr + size)) {
+        if (map_page(pagetable, curr_vaddr, curr_paddr, perm)) {
+            return -1;
+        }
+        curr_vaddr += PAGE_SIZE;
+        curr_paddr += PAGE_SIZE;   
+    }
+
+    return 0;
+}
 
 __attribute__((naked)) void switch_context(uint64_t *prev_sp,
                                            uint64_t *next_sp) {
