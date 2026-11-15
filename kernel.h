@@ -140,8 +140,6 @@ struct node {
     struct node *next;
 };
 
-struct node *freelist;
-
 // Virtqueue Descriptor Table entry.
 struct virtq_desc {
     uint64_t addr;
@@ -222,3 +220,7 @@ struct file {
     char data[1024];  // File content
     size_t size;      // File size
 };
+
+// Memory allocation functions
+void kfree(void *pa);
+void *kalloc();

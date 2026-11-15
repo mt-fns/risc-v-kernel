@@ -34,6 +34,9 @@ uint64_t blk_capacity;
 struct file files[FILES_MAX];
 uint8_t disk[DISK_MAX_SIZE];
 
+struct node *freelist;
+
+
 // paddr_t alloc_pages(uint64_t n) {
 //     static paddr_t next_paddr = (paddr_t) __free_ram;
 //     paddr_t paddr = next_paddr;

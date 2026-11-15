@@ -1,4 +1,5 @@
 #include "selftest.h"
+#include "kernel.h"
 
 paddr_t alloc_pages(uint32_t n);
 
@@ -25,18 +26,22 @@ static void test_string(void) {
 }
 
 static void test_alloc_pages(void) {
-    paddr_t a = alloc_pages(1);
-    paddr_t b = alloc_pages(2);
-    paddr_t c = alloc_pages(1);
+    paddr_t a = (paddr_t) kalloc();
+    paddr_t b = (paddr_t) kalloc();
+    paddr_t c = (paddr_t) kalloc();
 
     TEST_ASSERT(is_aligned(a, PAGE_SIZE));
-    TEST_ASSERT(b == a + PAGE_SIZE);
-    TEST_ASSERT(c == b + 2 * PAGE_SIZE);
+    TEST_ASSERT(is_aligned(b, PAGE_SIZE));
+    TEST_ASSERT(is_aligned(c, PAGE_SIZE));
 
     uint8_t *p = (uint8_t *) b;
-    for (size_t i = 0; i < 2 * PAGE_SIZE; i++)
+
+    for (size_t i = 0; i < PAGE_SIZE; i++) {
         TEST_ASSERT(p[i] == 0);
+    }
 }
+
+
 
 // Add a test: write a function above, then add one line here.
 static const struct selftest selftests[] = {
