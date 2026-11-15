@@ -183,8 +183,8 @@ uint64_t walk(pagetable_t pagetable, vaddr_t vaddr, int should_alloc) {
 // Creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
 // note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
 // each page table layer contains the same PTE format (refer to guide for format)
-// Returns 0 on failure
-int map_page(pagetable_t pagetable, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
+// Returns the newly allocated pte addr on success, 0 on failure
+uint64_t map_page(pagetable_t pagetable, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
     if (!is_aligned(vaddr, PAGE_SIZE)) {
         PANIC("unaligned vaddr %x", vaddr);
     }
@@ -202,6 +202,7 @@ int map_page(pagetable_t pagetable, vaddr_t vaddr, paddr_t paddr, uint32_t flags
     }
 
     *pte_addr = ((paddr >> 12) << 10) | flags | PAGE_V;
+    return (uint64_t) pte_addr;
 }
 
 // Allocates PTEs for a range of virtual addresses to a range of physical addresses
@@ -314,19 +315,22 @@ struct process *create_process(const void *image, size_t image_size) {
 
     // Map kernel pages
     uint64_t *page_table = (uint64_t *) kalloc();
-    for (paddr_t paddr = (paddr_t) __kernel_base;
-         paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
-        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+    paddr_t paddr = (paddr_t) __kernel_base;
+    map_pages(page_table, paddr, (uint64_t) (__free_ram_end - __kernel_base), paddr, PAGE_R | PAGE_W | PAGE_X);
+
+    // for (paddr_t paddr = (paddr_t) __kernel_base;
+    //      paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
+    //     map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
 
     // Map user pages
     for (uint64_t off = 0; off < image_size; off += PAGE_SIZE) {
         paddr_t page = (paddr_t) kalloc();
-
+    
         // Handle the case where the data to be copied is smaller than the
         // page size.
         size_t remaining = image_size - off;
         size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
-
+    
         // Fill and map the page.
         memcpy((void *) page, image + off, copy_size);
         map_page(page_table, USER_BASE + off, page,
@@ -519,7 +523,8 @@ void kernel_main(void) {
     idle_process->pid = 0;
     running_process = idle_process;
     create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_end - (size_t)_binary_shell_bin_start);
-    
+    printf("Hello World!");
+
     yield();
     PANIC("switched to idle process");
 }
