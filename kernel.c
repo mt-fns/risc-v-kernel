@@ -159,6 +159,9 @@ uint64_t walk(pagetable_t pagetable, vaddr_t vaddr, int should_alloc) {
     if ((table2[vpn2] & PAGE_V) == 0) {
         if (!should_alloc) return 0;
         uint64_t pt_paddr = (uint64_t) kalloc();
+        if (!pt_paddr) {
+            return 0;
+        }
 
         // allocate pte for second layer page table
         table2[vpn2] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
@@ -170,6 +173,10 @@ uint64_t walk(pagetable_t pagetable, vaddr_t vaddr, int should_alloc) {
     if ((table1[vpn1] & PAGE_V) == 0) {
         if (!should_alloc) return 0;
         uint64_t pt_paddr = (uint64_t) kalloc();
+        if (!pt_paddr) {
+            return 0;
+        }
+
         // allocate pte for third layer page table
         table1[vpn1] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
     }
@@ -218,7 +225,7 @@ uint64_t map_page(pagetable_t pagetable, vaddr_t vaddr, paddr_t paddr, uint32_t 
     uint64_t *pte_addr = (uint64_t *) walk(pagetable, vaddr, 1);
 
     // walk has failed allocating a PTE
-    if (pte_addr == 0) {
+    if (!pte_addr) {
         return 0;
     }
 
@@ -321,7 +328,7 @@ struct process *create_process(const void *image, size_t image_size) {
     }
 
     if (!proc)
-        PANIC("no free process slots");
+        PANIC("create process: no free process slots");
 
     // Stack callee-saved registers. These register values will be restored in
     // the first context switch in switch_context.
@@ -342,6 +349,11 @@ struct process *create_process(const void *image, size_t image_size) {
 
     // Map kernel pages
     uint64_t *page_table = (uint64_t *) kalloc();
+
+    if (!page_table)
+        PANIC("create process: no memory");
+    
+
     paddr_t paddr = (paddr_t) __kernel_base;
     size_t size = ((uint64_t) __free_ram_end) - ((uint64_t) __kernel_base);
     printf("size: %x\n", size);
@@ -349,14 +361,13 @@ struct process *create_process(const void *image, size_t image_size) {
         PANIC("kernel map pages");
     }
 
-    // for (paddr_t paddr = (paddr_t) __kernel_base;
-    //      paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
-    //     map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
 
     // Map user pages
     for (uint64_t off = 0; off < image_size; off += PAGE_SIZE) {
         paddr_t page = (paddr_t) kalloc();
-    
+        if (!page) 
+            PANIC("create process: no memory");
+        
         // Handle the case where the data to be copied is smaller than the
         // page size.
         size_t remaining = image_size - off;
@@ -364,8 +375,10 @@ struct process *create_process(const void *image, size_t image_size) {
     
         // Fill and map the page.
         memcpy((void *) page, image + off, copy_size);
-        map_page(page_table, USER_BASE + off, page,
-                 PAGE_U | PAGE_R | PAGE_W | PAGE_X);
+        if (!map_page(page_table, USER_BASE + off, page,
+                      PAGE_U | PAGE_R | PAGE_W | PAGE_X)) {
+            PANIC("create process: user map pages");
+        }
     }
 
     proc->pid = i + 1;
