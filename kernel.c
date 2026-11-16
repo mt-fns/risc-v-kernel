@@ -180,6 +180,27 @@ uint64_t walk(pagetable_t pagetable, vaddr_t vaddr, int should_alloc) {
     return (uint64_t) &table0[vpn0];
 }
 
+// Look up paddr corresponding to vaddr in pagetable
+// Returns 0 if not mapped
+uint64_t walkaddr(pagetable_t pagetable, vaddr_t vaddr) {
+    uint64_t pte_addr = walk(pagetable, vaddr, 0);
+    uint64_t pte = *((uint64_t *)pte_addr);
+
+
+    if (!pte_addr) {
+        return 0;
+    }
+    if ((pte & PAGE_V) == 0) {
+        return 0;
+    }
+    if ((pte & PAGE_V) == 0) {
+        return 0;
+    }
+
+    paddr_t pa = (((pte) >> 10) << 12);
+    return pa;
+}
+
 // Creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
 // note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
 // each page table layer contains the same PTE format (refer to guide for format)
@@ -216,10 +237,16 @@ int map_pages(pagetable_t pagetable, vaddr_t vaddr, uint64_t size, paddr_t paddr
         PANIC("unaligned paddr %x", paddr);
     }
 
+    if (size == 0) {
+        PANIC("mappages: size");
+    }
+
     vaddr_t curr_vaddr = vaddr;
+    vaddr_t last_vaddr = curr_vaddr + size;
     paddr_t curr_paddr = paddr;
-    while (curr_vaddr < (curr_vaddr + size)) {
-        if (map_page(pagetable, curr_vaddr, curr_paddr, perm)) {
+
+    while (curr_vaddr < last_vaddr) {
+        if (!map_page(pagetable, curr_vaddr, curr_paddr, perm)) {
             return -1;
         }
         curr_vaddr += PAGE_SIZE;
@@ -316,7 +343,11 @@ struct process *create_process(const void *image, size_t image_size) {
     // Map kernel pages
     uint64_t *page_table = (uint64_t *) kalloc();
     paddr_t paddr = (paddr_t) __kernel_base;
-    map_pages(page_table, paddr, (uint64_t) (__free_ram_end - __kernel_base), paddr, PAGE_R | PAGE_W | PAGE_X);
+    size_t size = ((uint64_t) __free_ram_end) - ((uint64_t) __kernel_base);
+    printf("size: %x\n", size);
+    if (map_pages(page_table, paddr, size, paddr, PAGE_R | PAGE_W | PAGE_X) < 0) {
+        PANIC("kernel map pages");
+    }
 
     // for (paddr_t paddr = (paddr_t) __kernel_base;
     //      paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
@@ -523,7 +554,7 @@ void kernel_main(void) {
     idle_process->pid = 0;
     running_process = idle_process;
     create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_end - (size_t)_binary_shell_bin_start);
-    printf("Hello World!");
+    // printf("Hello World!");
 
     yield();
     PANIC("switched to idle process");
