@@ -12,6 +12,7 @@ typedef uint64_t * pagetable_t;
 extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
 extern char __kernel_base[];
+extern char __etext[]; // end of kernel text
 
 // user application raw binary content & raw binary size (including bss region)
 extern char _binary_shell_bin_start[], _binary_shell_bin_size[], _binary_shell_bin_end[];
@@ -35,7 +36,11 @@ uint64_t blk_capacity;
 struct file files[FILES_MAX];
 uint8_t disk[DISK_MAX_SIZE];
 
+// free kernely memory
 struct freelist kmem = {0, NULL};
+
+// kernel page table
+pagetable_t kernel_pagetable;
 
 // paddr_t alloc_pages(uint64_t n) {
 //     static paddr_t next_paddr = (paddr_t) __free_ram;
@@ -122,10 +127,10 @@ void freerange(void *pa_start, void *pa_end) {
     }
 }
 
-void kinit() {
+// Add free memory to freelist structure
+void kernel_init_mem() {
     freerange(__free_ram, (void *)__free_ram_end);
 }
-
 
 // Allocates a page of memory or return 0 if no pages left in the free list
 void *kalloc() {
@@ -209,7 +214,7 @@ uint64_t walkaddr(pagetable_t pagetable, vaddr_t vaddr) {
 }
 
 // Creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
-// note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
+// note about the page table: we use a 2-layer page table following RISC-V's Sv39 paging mechanism.
 // each page table layer contains the same PTE format (refer to guide for format)
 // Returns the newly allocated pte addr on success, 0 on failure
 uint64_t map_page(pagetable_t pagetable, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
@@ -388,6 +393,32 @@ struct process *create_process(const void *image, size_t image_size) {
     return proc;
 }
 
+void kernel_enable_paging() {
+    kernel_pagetable = kalloc();
+    if (!kernel_pagetable) 
+        PANIC("kernel_enable_paging: unable to allocate kernel pt");
+
+    
+    paddr_t kernel_base = (paddr_t) __kernel_base;
+    paddr_t kernel_text_end = (paddr_t) __etext;
+    paddr_t kernel_phys_stop = (paddr_t) __free_ram_end;
+
+    // map kernel text executable and read-only
+    if (map_pages(kernel_pagetable, kernel_base, (uint64_t)(kernel_text_end - kernel_base), kernel_base, PAGE_R | PAGE_X) < 0)
+        PANIC("kernel_enable_paging: unable to map kernel pages");
+    
+    // map rest of kernel pages
+    if (map_pages(kernel_pagetable, kernel_text_end, (uint64_t)(kernel_phys_stop - kernel_text_end), kernel_text_end, PAGE_R | PAGE_W) < 0)
+        PANIC("kernel_enable_paging: unable to map kernel pages");
+
+    __asm__ __volatile__(
+        "sfence.vma\n"
+        "csrw satp, %[satp]\n"
+        "sfence.vma\n"
+        :
+        : [satp] "r" (SATP_SV39 | ((uint64_t)kernel_pagetable / PAGE_SIZE))
+    );
+}
 
 __attribute__((naked))
 __attribute__((aligned(4)))
@@ -552,22 +583,21 @@ int oct2int(char *oct, int len) {
 
 void kernel_main(void) {
     memset(__bss, 0, (size_t) __bss_end - (size_t) __bss);
-    kinit();
-    
-#ifdef SELFTEST
-    WRITE_CSR(stvec, (uint64_t) kernel_entry);
-    run_selftests();
-#endif
+    kernel_init_mem();
+    kernel_enable_paging();
+
+    #ifdef SELFTEST
+        WRITE_CSR(stvec, (uint64_t) kernel_entry);
+        run_selftests();
+    #endif
 
     // point the kernel exception point to the kernel_entry function
     WRITE_CSR(stvec, (uint64_t) kernel_entry);
-
 
     idle_process = create_process(NULL, 0);
     idle_process->pid = 0;
     running_process = idle_process;
     create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_end - (size_t)_binary_shell_bin_start);
-    // printf("Hello World!");
 
     yield();
     PANIC("switched to idle process");

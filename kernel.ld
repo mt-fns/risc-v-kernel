@@ -7,6 +7,8 @@ SECTIONS {
     .text :{
         KEEP(*(.text.boot));
         *(.text .text.*);
+        . = ALIGN(4096);
+        PROVIDE(__etext = .);
     }
 
     .rodata : ALIGN(4) {
