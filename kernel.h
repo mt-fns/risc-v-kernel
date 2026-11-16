@@ -135,12 +135,15 @@ struct trap_frame {
 } __attribute__((packed));
 
 
-// Freelist structure
+// Free memory list structure
 struct node {
     struct node *next;
 };
 
-struct node *freelist;
+struct freelist {
+    uint64_t nfree;
+    struct node *head;
+};
 
 // Virtqueue Descriptor Table entry.
 struct virtq_desc {
@@ -222,3 +225,8 @@ struct file {
     char data[1024];  // File content
     size_t size;      // File size
 };
+
+// Memory allocation functions
+void kfree(void *pa);
+void *kalloc();
+uint64_t knumfree();

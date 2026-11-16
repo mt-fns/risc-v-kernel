@@ -41,15 +41,15 @@ kernel.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) shell.bin.o
 
 
 # Build the test kernel: same sources plus selftest.c, with SELFTEST defined.
-kernel-test.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) $(KERNEL_ARCH) selftest.c selftest.h shell.bin.o
-	$(CC) $(CFLAGS) -DSELFTEST -DSELFTEST_PASS_MSG='"$(SELFTEST_PASS)"' \
+kernel-test.elf: $(KERNEL_SRCS) $(KERNEL_HDRS) selftest.c selftest.h shell.bin.o
+	$(CC) $(CFLAGS) $(KERNEL_ARCH) -DSELFTEST -DSELFTEST_PASS_MSG='"$(SELFTEST_PASS)"' \
 		-Wl,-Tkernel.ld -Wl,-Map=kernel-test.map -o $@ $(KERNEL_SRCS) selftest.c shell.bin.o
 
 # Run the test kernel. Passes only if QEMU exits 0 *and* the pass line was
 # printed; a timeout (exit 124), a panic, or a silent shutdown all fail.
 # Output is kept in test.log. 2>&1 matters: OpenSBI uses semihosting as the
 # console here, and QEMU writes semihosting output to stderr.
-test: kernel-test.elf fs
+test: kernel-test.elf
 	@set -o pipefail; \
 	timeout -k 2 $(TEST_TIMEOUT) $(QEMU) $(QEMUOPTS) -kernel kernel-test.elf \
 		-d unimp,guest_errors -D qemu-test.log </dev/null 2>&1 | tee test.log; \

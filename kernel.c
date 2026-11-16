@@ -7,6 +7,7 @@
 typedef unsigned char uint8_t;
 typedef unsigned int uint32_t;
 typedef uint64_t size_t;
+typedef uint64_t * pagetable_t;
 
 extern char __bss[], __bss_end[], __stack_top[];
 extern char __free_ram[], __free_ram_end[];
@@ -33,6 +34,8 @@ uint64_t blk_capacity;
 
 struct file files[FILES_MAX];
 uint8_t disk[DISK_MAX_SIZE];
+
+struct freelist kmem = {0, NULL};
 
 // paddr_t alloc_pages(uint64_t n) {
 //     static paddr_t next_paddr = (paddr_t) __free_ram;
@@ -97,7 +100,6 @@ void qemu_exit_fail(uint32_t code) {
 void kfree(void *pa) {
     struct node *freenode;
 
-    // TODO: check if __free_ram_end here is the correct metric (check also if data type to compare is correct)
     if (!is_aligned(pa, PAGE_SIZE) || (char *)pa < __free_ram || (char *)pa >= __free_ram_end) {
         PANIC("kfree");
     }
@@ -106,8 +108,9 @@ void kfree(void *pa) {
     memset(pa, 1, PAGE_SIZE);
 
     freenode = (struct node *)pa;
-    freenode->next = freelist;
-    freelist = freenode;
+    freenode->next = kmem.head;
+    kmem.head = freenode;
+    kmem.nfree++;
 }
 
 void freerange(void *pa_start, void *pa_end) {
@@ -123,39 +126,38 @@ void kinit() {
     freerange(__free_ram, (void *)__free_ram_end);
 }
 
+
+// Allocates a page of memory or return 0 if no pages left in the free list
 void *kalloc() {
     struct node *freenode;
-    freenode = freelist;
+    freenode = kmem.head;
 
     if (freenode) {
-        freelist = freelist->next;
-    }
-
-    if (freenode) {
+        kmem.head = freenode->next;
         // junk filled
         memset((char *)freenode, 0, PAGE_SIZE);
+        kmem.nfree--;
+        return (void *)freenode;
     }
-    return (void *)freenode;
+
+    return 0;
 }
 
-/*
-    creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
-    note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
-    each page table layer contains the same PTE format (refer to guide for format)
-*/ 
-void map_page(uint64_t *table2, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
-    if (!is_aligned(vaddr, PAGE_SIZE)) {
-        PANIC("unaligned vaddr %x", vaddr);
-    }
+uint64_t knumfree() {
+    return kmem.nfree;
+}
 
-    if (!is_aligned(paddr, PAGE_SIZE)) {
-        PANIC("unaligned paddr %x", paddr);
-    }
 
+// Returns the address of the PTE that corresponds to vaddr
+// if this PTE has not yet been allocated & should_alloc is set, allocates a PTE for the vaddr
+// if should_alloc is not set and PTE has not been allocated, return 0
+uint64_t walk(pagetable_t pagetable, vaddr_t vaddr, int should_alloc) {
     uint64_t vpn2 = vaddr >> 30; 
+    uint64_t *table2 = (uint64_t *) pagetable; 
 
     // make first layer if it doesnt exit
     if ((table2[vpn2] & PAGE_V) == 0) {
+        if (!should_alloc) return 0;
         uint64_t pt_paddr = (uint64_t) kalloc();
 
         // allocate pte for second layer page table
@@ -166,17 +168,93 @@ void map_page(uint64_t *table2, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
     uint64_t *table1 = (uint64_t *) ((table2[vpn2] >> 10) * PAGE_SIZE);
 
     if ((table1[vpn1] & PAGE_V) == 0) {
+        if (!should_alloc) return 0;
         uint64_t pt_paddr = (uint64_t) kalloc();
-        // allocate pte for second layer page table
+        // allocate pte for third layer page table
         table1[vpn1] = ((pt_paddr / PAGE_SIZE) << 10 | PAGE_V);
     }
 
-    // add leaf PTE containing PPN to actual paddr into the page table
     uint64_t vpn0 = ((vaddr << 43) >> 43) >> 12;
     uint64_t *table0 = (uint64_t *) (uint64_t) ((table1[vpn1] >> 10) << 12);
-    table0[vpn0] = ((paddr >> 12) << 10) | flags | PAGE_V;
+
+    return (uint64_t) &table0[vpn0];
 }
 
+// Look up paddr corresponding to vaddr in pagetable
+// Returns 0 if not mapped
+uint64_t walkaddr(pagetable_t pagetable, vaddr_t vaddr) {
+    uint64_t pte_addr = walk(pagetable, vaddr, 0);
+    uint64_t pte = *((uint64_t *)pte_addr);
+
+
+    if (!pte_addr) {
+        return 0;
+    }
+    if ((pte & PAGE_V) == 0) {
+        return 0;
+    }
+    if ((pte & PAGE_V) == 0) {
+        return 0;
+    }
+
+    paddr_t pa = (((pte) >> 10) << 12);
+    return pa;
+}
+
+// Creates a first and second layer page table entry mapping vaddr to paddr with flags set in the pte.
+// note about the page table: we use a 2-layer page table following RISC-V's Sv32 paging mechanism.
+// each page table layer contains the same PTE format (refer to guide for format)
+// Returns the newly allocated pte addr on success, 0 on failure
+uint64_t map_page(pagetable_t pagetable, vaddr_t vaddr, paddr_t paddr, uint32_t flags) {
+    if (!is_aligned(vaddr, PAGE_SIZE)) {
+        PANIC("unaligned vaddr %x", vaddr);
+    }
+
+    if (!is_aligned(paddr, PAGE_SIZE)) {
+        PANIC("unaligned paddr %x", paddr);
+    }
+    
+    // allocate 3 layer page table
+    uint64_t *pte_addr = (uint64_t *) walk(pagetable, vaddr, 1);
+
+    // walk has failed allocating a PTE
+    if (pte_addr == 0) {
+        return 0;
+    }
+
+    *pte_addr = ((paddr >> 12) << 10) | flags | PAGE_V;
+    return (uint64_t) pte_addr;
+}
+
+// Allocates PTEs for a range of virtual addresses to a range of physical addresses
+// Returns 0 on success, -1 if a PTE could not be allocated
+int map_pages(pagetable_t pagetable, vaddr_t vaddr, uint64_t size, paddr_t paddr, int perm) {
+    if (!is_aligned(vaddr, PAGE_SIZE)) {
+        PANIC("unaligned vaddr %x", vaddr);
+    }
+
+    if (!is_aligned(paddr, PAGE_SIZE)) {
+        PANIC("unaligned paddr %x", paddr);
+    }
+
+    if (size == 0) {
+        PANIC("mappages: size");
+    }
+
+    vaddr_t curr_vaddr = vaddr;
+    vaddr_t last_vaddr = curr_vaddr + size;
+    paddr_t curr_paddr = paddr;
+
+    while (curr_vaddr < last_vaddr) {
+        if (!map_page(pagetable, curr_vaddr, curr_paddr, perm)) {
+            return -1;
+        }
+        curr_vaddr += PAGE_SIZE;
+        curr_paddr += PAGE_SIZE;   
+    }
+
+    return 0;
+}
 
 __attribute__((naked)) void switch_context(uint64_t *prev_sp,
                                            uint64_t *next_sp) {
@@ -264,19 +342,26 @@ struct process *create_process(const void *image, size_t image_size) {
 
     // Map kernel pages
     uint64_t *page_table = (uint64_t *) kalloc();
-    for (paddr_t paddr = (paddr_t) __kernel_base;
-         paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
-        map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
+    paddr_t paddr = (paddr_t) __kernel_base;
+    size_t size = ((uint64_t) __free_ram_end) - ((uint64_t) __kernel_base);
+    printf("size: %x\n", size);
+    if (map_pages(page_table, paddr, size, paddr, PAGE_R | PAGE_W | PAGE_X) < 0) {
+        PANIC("kernel map pages");
+    }
+
+    // for (paddr_t paddr = (paddr_t) __kernel_base;
+    //      paddr < (paddr_t) __free_ram_end; paddr += PAGE_SIZE)
+    //     map_page(page_table, paddr, paddr, PAGE_R | PAGE_W | PAGE_X);
 
     // Map user pages
     for (uint64_t off = 0; off < image_size; off += PAGE_SIZE) {
         paddr_t page = (paddr_t) kalloc();
-
+    
         // Handle the case where the data to be copied is smaller than the
         // page size.
         size_t remaining = image_size - off;
         size_t copy_size = PAGE_SIZE <= remaining ? PAGE_SIZE : remaining;
-
+    
         // Fill and map the page.
         memcpy((void *) page, image + off, copy_size);
         map_page(page_table, USER_BASE + off, page,
@@ -469,7 +554,8 @@ void kernel_main(void) {
     idle_process->pid = 0;
     running_process = idle_process;
     create_process(_binary_shell_bin_start, (size_t)_binary_shell_bin_end - (size_t)_binary_shell_bin_start);
-    
+    // printf("Hello World!");
+
     yield();
     PANIC("switched to idle process");
 }
