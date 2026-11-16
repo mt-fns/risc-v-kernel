@@ -411,6 +411,10 @@ void kernel_enable_paging() {
     if (map_pages(kernel_pagetable, kernel_text_end, (uint64_t)(kernel_phys_stop - kernel_text_end), kernel_text_end, PAGE_R | PAGE_W) < 0)
         PANIC("kernel_enable_paging: unable to map kernel pages");
 
+    // QEMU test device, used by qemu_exit_pass/qemu_exit_fail
+    if (map_pages(kernel_pagetable, QEMU_TEST_ADDR, PAGE_SIZE, QEMU_TEST_ADDR, PAGE_R | PAGE_W) < 0)
+        PANIC("kernel_enable_paging: unable to map qemu test device");
+
     __asm__ __volatile__(
         "sfence.vma\n"
         "csrw satp, %[satp]\n"
@@ -643,6 +647,13 @@ void handle_trap(struct trap_frame *f) {
         // go to the nex instruction when we return from trap
         user_pc += 4;
         WRITE_CSR(sepc, user_pc);
+#ifdef SELFTEST
+    } else if (selftest_expect_fault) {
+        // a selftest caused this on purpose: record it and skip the 4-byte instruction
+        selftest_expect_fault = 0;
+        selftest_fault_scause = scause;
+        WRITE_CSR(sepc, user_pc + 4);
+#endif
     } else {
         PANIC("unexpected trap scause=%x, stval=%x, sepc=%x\n", scause, stval, user_pc);
     }
