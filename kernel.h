@@ -87,20 +87,34 @@ __attribute__((noreturn)) void qemu_exit_fail(uint32_t code);
 #define VIRTIO_BLK_T_IN  0
 #define VIRTIO_BLK_T_OUT 1
 
+// trap frame and trampoline pages
+// taken from xv6
+// one beyond the highest possible virtual address.
+// MAXVA is actually one bit less than the max allowed by
+// Sv39, to avoid having to sign-extend virtual addresses
+// that have the high bit set.
+#define MAXVA 0x4000000000
+#define TRAMPOLINE (MAXVA - PAGE_SIZE)
+#define TRAPFRAME (TRAMPOLINE - PAGE_SIZE)
+
+
 struct sbiret {
     long error;
     long value;
 };
 
 struct process {
+    // process states
     int pid;
     int state;           // PROC_UNUSED or PROC_RUNNABLE
     vaddr_t sp;          
     uint64_t *page_table;
     uint8_t stack[8192]; // kernel stack
+    struct trap_frame *trapframe;
 };
 
 struct trap_frame {
+    // stored user registers
     uint64_t ra;
     uint64_t gp;
     uint64_t tp;
@@ -132,6 +146,11 @@ struct trap_frame {
     uint64_t s10;
     uint64_t s11;
     uint64_t sp;
+    // kernel states
+    uint64_t kernel_sp;
+    uint64_t kernel_trap;
+    uint64_t kernel_satp;
+    uint64_t epc;
 } __attribute__((packed));
 
 

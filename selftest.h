@@ -23,3 +23,6 @@ struct selftest {
 };
 
 __attribute__((noreturn)) void run_selftests(void);
+
+extern volatile int selftest_expect_fault;
+extern volatile uint64_t selftest_fault_scause;

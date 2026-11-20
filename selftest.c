@@ -8,9 +8,12 @@ uint64_t walk(uint64_t *pagetable, vaddr_t vaddr, int should_alloc);
 uint64_t walkaddr(uint64_t *pagetable, vaddr_t vaddr);
 int map_pages(uint64_t *pagetable, vaddr_t vaddr, uint64_t size, paddr_t paddr, int perm);
 
-extern char __free_ram[], __free_ram_end[];
+extern char __kernel_base[];
 
 const char *selftest_current = "(none)";
+
+volatile int selftest_expect_fault;
+volatile uint64_t selftest_fault_scause;
 
 static void test_trivial(void) {
     TEST_ASSERT(1 == 1);
@@ -33,6 +36,7 @@ static void test_string(void) {
 }
 
 static void test_alloc_pages(void) {
+    uint64_t before = knumfree();
     paddr_t a = (paddr_t) kalloc();
     paddr_t b = (paddr_t) kalloc();
     paddr_t c = (paddr_t) kalloc();
@@ -52,9 +56,7 @@ static void test_alloc_pages(void) {
     kfree((void *)b);
     kfree((void *)c);
 
-    uint64_t num_pages_on_boot = (((uint64_t) __free_ram_end) - ((uint64_t)__free_ram)) / PAGE_SIZE;
-
-    TEST_ASSERT(knumfree() == num_pages_on_boot);
+    TEST_ASSERT(knumfree() == before);
 }
 
 
@@ -97,12 +99,25 @@ static void test_map_pages(void) {
     TEST_ASSERT(knumfree() == before);
 }
 
+static void test_kernel_text_not_writable(void) {
+    // kernel_entry swaps sp with sscratch, so the trap needs a stack to land on
+    static uint8_t trap_stack[4096] __attribute__((aligned(16)));
+    WRITE_CSR(sscratch, (uint64_t) &trap_stack[sizeof(trap_stack)]);
+
+    selftest_expect_fault = 1;
+    __asm__ __volatile__("sb zero, 0(%0)" :: "r"(__kernel_base) : "memory");
+
+    TEST_ASSERT(selftest_expect_fault == 0);    // the store trapped
+    TEST_ASSERT(selftest_fault_scause == 15);   // as a store page fault
+}
+
 // Add a test: write a function above, then add one line here.
 static const struct selftest selftests[] = {
     {"trivial", test_trivial},
     {"string", test_string},
     {"alloc_pages", test_alloc_pages},
     {"map_pages", test_map_pages},
+    {"kernel_text_not_writable", test_kernel_text_not_writable},
 };
 
 void run_selftests(void) {
