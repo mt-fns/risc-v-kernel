@@ -8,6 +8,10 @@ SECTIONS {
         KEEP(*(.text.boot));
         *(.text .text.*);
         . = ALIGN(4096);
+        __trampoline = .;
+        *(trampsec)
+        . = ALIGN(4096);
+        ASSERT(. - __trampoline == 0x1000, "error: trampoline larger than one page");
         PROVIDE(__etext = .);
     }
 
